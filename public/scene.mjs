@@ -1145,9 +1145,9 @@ export class View {
       const before = { x: m.position.x, z: m.position.z };
       m.position.lerp(v(a.x, 0, a.z), Math.min(1, dt * 15));
       const instant = dt > 0 ? Math.hypot(m.position.x - before.x, m.position.z - before.z) / dt : 0;
-      ud.speed += (Math.min(instant, 9) - ud.speed) * Math.min(1, dt * 8);
+      ud.speed += (Math.min(instant, 18) - ud.speed) * Math.min(1, dt * 8);
       const speed = a.moving ? Math.max(ud.speed, 1) : 0;
-      if (speed) ud.phase += dt * speed * (speed > 2 ? 3.2 : 4.1);
+      if (speed) ud.phase += dt * Math.min(speed, 10) * (speed > 2 ? 3.2 : 4.1);
       pose(m, { phase: ud.phase, speed, stance: a.stance, time, look: 0, gesture: 0, seed: ud.seed });
       if (a.moving) motion = true;
       thermal(m, !!heat && heat.id === id, time);

@@ -1,4 +1,4 @@
-import { CELL, DIRECTIONS, makeWorld, blockAt, clamp, distance, direction, clearSight, eye, atHeight, occupied, stepBody, npcPose, insideOf } from './world.mjs';
+import { CELL, DIRECTIONS, makeWorld, blockAt, clamp, distance, direction, clearSight, eye, atHeight, occupied, stepBody, npcPose, insideOf, SEEKER_SPEED } from './world.mjs';
 
 const $ = id => document.getElementById(id);
 const button = (text, className, action) => {
@@ -582,11 +582,6 @@ function targets() {
     const len = Math.hypot(dx, dz);
     return { len, angle: (-Math.sin(yaw) * dx - Math.cos(yaw) * dz) / Math.max(len, 0.01) };
   };
-  const hider = state.others.find(p => p.role === 'hider');
-  if (hider) {
-    const { len, angle } = look(hider);
-    if (len <= 2.9 && (angle > 0.06 || len < 0.75)) return { tag: true };
-  }
   let best, bestScore = -Infinity;
   const clock = npcClock(performance.now());
   if (state.npcEnabled) for (const npc of world.npcs) {
@@ -790,15 +785,47 @@ function hud(time) {
   drawMap($('mini-map'), false);
   if ($('map').open) drawMap($('large-map'), true);
 }
+// Arrows around the middle of the screen point at villagers who have spotted the hider.
+const arrows = new Map();
+function updateArrows() {
+  const box = $('alert-arrows');
+  const showing = simulation && state && predicted && world && !building && !state.paused && state.self.role === 'seeker' &&
+    state.phase === 'seek' && !currentDialog() && state.alerts?.length;
+  if (!showing) {
+    if (arrows.size) { box.replaceChildren(); arrows.clear(); }
+    return;
+  }
+  const px = state.drone?.x ?? predicted.x, pz = state.drone?.z ?? predicted.z, facing = state.drone ? 0 : yaw;
+  const clock = npcClock(performance.now()), radius = Math.min(box.clientWidth, box.clientHeight) * 0.3;
+  const list = state.alerts.map(id => {
+    const npc = world.npcs[id], where = npc && npcPose(npc, clock, world.walkers);
+    return npc && { npc, where, d: Math.hypot(where.x - px, where.z - pz) };
+  }).filter(item => item && item.d > 3).sort((a, b) => a.d - b.d).slice(0, 3);
+  const keep = new Set(list.map(item => item.npc.id));
+  for (const [id, el] of arrows) if (!keep.has(id)) { el.remove(); arrows.delete(id); }
+  for (const { npc, where, d } of list) {
+    let el = arrows.get(npc.id);
+    if (!el) {
+      el = document.createElement('div'); el.className = 'alert-arrow';
+      el.innerHTML = '<svg viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="21" fill="#f2a33a" stroke="#2b1d0c" stroke-width="3"/><path d="M24 6 L36 26 L24 21 L12 26 Z" fill="#2b1d0c"/><text x="24" y="40" text-anchor="middle" font-size="15" font-weight="900" fill="#2b1d0c">!</text></svg><span></span>';
+      box.append(el); arrows.set(npc.id, el);
+    }
+    // 0 is straight ahead, a quarter turn clockwise is to your right
+    const rel = Math.atan2(where.x - px, -(where.z - pz)) + facing;
+    el.style.transform = 'translate(' + Math.sin(rel) * radius + 'px,' + -Math.cos(rel) * radius + 'px)';
+    el.firstElementChild.style.transform = 'rotate(' + rel + 'rad)';
+    el.lastElementChild.textContent = npc.name + ' · ' + Math.round(d) + ' m';
+  }
+}
 function frame(now) {
   requestAnimationFrame(frame);
-  if (!simulation || !live() || !predicted || !state || building) return;
+  if (!simulation || !live() || !predicted || !state || building) { updateArrows(); return; }
   const dt = Math.min(0.056, Math.max(0.001, (now - (lastFrame || now - 16)) / 1000));
   lastFrame = now;
   const command = input();
   const seekerBlind = state.self.role === 'seeker' && state.phase === 'hide';
   const canWalk = active() && !state.drone && !(predicted.role === 'hider' && state.phase === 'seek' && !room.settings.moveHider);
-  if (active() && !state.drone) stepBody(world, predicted, canWalk ? command : { ...command, side: 0, forward: 0 }, dt, room.settings.sprint);
+  if (active() && !state.drone) stepBody(world, predicted, canWalk ? command : { ...command, side: 0, forward: 0 }, dt, room.settings.sprint, predicted.role === 'seeker' ? SEEKER_SPEED : 1);
   if (now - lastSent >= 34) { send(command); lastSent = now; }
   if (!seekerBlind && predicted.role !== 'waiting') {
     scene.draw(predicted, { yaw, pitch, walking: canWalk && Math.hypot(command.side, command.forward) > 0.1 }, state, now / 1000, dt, names, npcClock(now));
@@ -812,6 +839,7 @@ function frame(now) {
       }
     }
   }
+  updateArrows();
   if (now - lastUI > 84) { hud(now); lastUI = now; }
 }
 requestAnimationFrame(frame);

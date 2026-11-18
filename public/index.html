@@ -67,6 +67,7 @@
     <div class="game-map"><button id="map-button" class="minimap" data-open="map" aria-label="Open town map"><canvas id="mini-map" width="194" height="194"></canvas><span>Town map <kbd>M</kbd></span></button></div>
     <div id="drone-readout" class="hud drone-readout" hidden></div>
     <div id="aim" aria-hidden="true"></div>
+    <div id="alert-arrows" aria-hidden="true"></div>
     <div id="blocked-view" hidden><div class="hud blocked-card"><div class="eyebrow" id="blocked-kicker"></div><h2 id="blocked-title"></h2><p id="blocked-text"></p></div></div>
     <div id="center-status" class="hud center-status" aria-live="polite" hidden></div>
     <div id="action-zone"><button id="action-button" class="hud hud-button" hidden>Ask</button><div id="aim-prompt" class="hud" hidden></div></div>
@@ -103,9 +104,9 @@
   <dialog id="help">
     <div class="dialog-head"><h2>How to play</h2><button class="small-icon" data-close aria-label="Close instructions">×</button></div>
     <p><strong>Hider.</strong> Find cover before the countdown ends. Stand behind a wall, crouch beside a hedge, go prone under a low stall or step inside an open building such as the bakery. Villagers who see you remember where you went. Stay hidden until time runs out.</p>
-    <p><strong>Seekers.</strong> Walk up to a villager and ask for a clue. Read the building signs and the town map to follow the directions. Follow the directions and look at the map when a search circle appears. Get close to the hider, look at them and tag them.</p>
-    <p><strong>Keyboard.</strong> Use WASD or arrow keys and look with the mouse. Shift runs, C crouches and Z goes prone. Press E to ask or tag, M for the map, B for binoculars, F for the drone and P for the menu. Esc releases the mouse.</p>
-    <p><strong>Tablet.</strong> Drag the left stick to move. Drag the town view to look around. Tap the stance, equipment and action buttons. Landscape gives you a wider view.</p>
+    <p><strong>Seekers.</strong> Walk up to a villager and ask for a clue. Read the building signs and the town map to follow the directions. Follow the directions and look at the map when a search circle appears. Run into the hider to catch them. No button is needed.</p>
+    <p><strong>Keyboard.</strong> Use WASD or arrow keys and look with the mouse. Shift runs, C crouches and Z goes prone. Press E to ask a villager, M for the map, B for binoculars, F for the drone and P for the menu. Esc releases the mouse.</p>
+    <p><strong>Tablet.</strong> Drag the left stick to move. Drag the town view to look around. Tap the stance, equipment and ask buttons. Landscape gives you a wider view.</p>
     <p><strong>Drone.</strong> Use your movement controls to fly. Its heat vision shows the hider as a glowing shape through roofs and walls when they are within about 25 metres. A ping stays on your map for 10 seconds. Tap Drone again or press F to land.</p>
   </dialog>
   <dialog id="words">

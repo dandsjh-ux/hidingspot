@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import { io as client } from 'socket.io-client';
 import { createGameServer, witnessSpot } from '../server.mjs';
 import {
-  makeWorld, occupied, clearSight, direction, distance, stepBody, blockAt, npcPose, npcNotices, insideOf
+  makeWorld, occupied, clearSight, direction, distance, stepBody, blockAt, npcPose, npcNotices, insideOf, SEEKER_SPEED
 } from '../public/world.mjs';
 
 test('town sizes, walkable spawn, walls, and clearance for crouching and going prone', () => {
@@ -404,4 +404,53 @@ test('seekers see the same villager alerts as the hider, but only once the searc
   jump(6000);
   const seeker = await until(guest, 'state', s => s.phase === 'seek' && s.alerts?.includes(villager.id), 3000);
   assert.ok(seeker.alerts.includes(villager.id));
+});
+
+test('seekers move twice as fast, never skip through walls, and catch the hider by touching them', { timeout: 25000 }, async t => {
+  // Shared movement: a seeker covers twice the ground, and fast steps still stop at a wall.
+  const town = makeWorld({ size: 3, walkers: false });
+  const slow = { x: 0, z: 19, stance: 0 }, fast = { x: 0, z: 19, stance: 0 };
+  stepBody(town, slow, { side: 1, forward: 0, yaw: 0, stance: 0 }, 0.1);
+  stepBody(town, fast, { side: 1, forward: 0, yaw: 0, stance: 0 }, 0.1, true, SEEKER_SPEED);
+  assert.ok(Math.abs(fast.x / slow.x - 2) < 0.01);
+  const house = town.objects.find(o => o.kind === 'building' && !o.enter);
+  const runner = { x: house.x - house.w / 2 - 1, z: house.z, stance: 0 };
+  for (let i = 0; i < 30; i++) stepBody(town, runner, { side: 1, forward: 0, yaw: 0, stance: 0, run: true }, 0.056, true, SEEKER_SPEED);
+  assert.ok(runner.x < house.x - house.w / 2, 'a fast seeker is stopped by the wall');
+
+  const { connect, jump } = await harness(t);
+  const [host, guest] = await Promise.all([connect(), connect()]);
+  const opened = until(host, 'identity');
+  await emit(host, 'create-room', { name: 'Hider' });
+  const { code } = await opened;
+  await emit(guest, 'join-room', { code, name: 'Seeker' });
+  await emit(host, 'host', { action: 'settings', settings: { hide: 10, seek: 200, size: 3, walkers: false } });
+  await emit(host, 'host', { action: 'start' });
+  await until(guest, 'state', s => s.phase === 'hide');
+  jump(11000);
+  await until(guest, 'state', s => s.phase === 'seek');
+  // Walk (not run) east along the street and measure the speed against the shared round clock.
+  const samples = [];
+  for (let i = 0; i < 14; i++) {
+    input(guest, { side: 1 });
+    await wait(40);
+    if (i >= 3) samples.push({ x: guest.latest.self.x, clock: guest.latest.clock });
+  }
+  input(guest);
+  const first = { self: samples[0] , clock: samples[0].clock }, second = { self: samples.at(-1), clock: samples.at(-1).clock };
+  const speed = (second.self.x - first.self.x) / (second.clock - first.clock);
+  assert.ok(speed > 9.5 && speed < 11.5, 'walking seeker speed ' + speed.toFixed(1) + ' m/s');
+  // Run at the hider. Touching is enough, with no key press.
+  const end = until(host, 'room', value => value.phase === 'end', 12000);
+  let finished = false;
+  end.then(() => { finished = true; }, () => {});
+  for (let i = 0; i < 150 && !finished; i++) {
+    const me = guest.latest.self, them = host.latest.self;
+    const dx = them.x - me.x, dz = them.z - me.z, len = Math.max(1, Math.hypot(dx, dz));
+    input(guest, { side: dx / len, forward: -dz / len, run: true });
+    await wait(40);
+  }
+  const outcome = await end;
+  assert.equal(outcome.result.winner, 'seeker');
+  assert.match(outcome.result.message, /caught/);
 });

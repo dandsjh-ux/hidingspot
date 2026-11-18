@@ -6,7 +6,7 @@ import { resolve } from 'node:path';
 import { Server } from 'socket.io';
 import {
   makeWorld, stepBody, clamp, clearSight, eye, atHeight, direction, blockAt, distance, LANDMARKS,
-  npcPose, npcNotices, insideOf
+  npcPose, npcNotices, insideOf, SEEKER_SPEED, CATCH_RADIUS
 } from './public/world.mjs';
 
 const root = fileURLToPath(new URL('.', import.meta.url));
@@ -475,9 +475,15 @@ export function createGameServer({ now = Date.now } = {}) {
         p.drone.z = clamp(p.z + (next.z - p.z) / tether, -room.world.bound, room.world.bound);
       } else {
         const frozen = p === hider && room.phase === 'seek' && !room.settings.moveHider;
-        stepBody(room.world, p, frozen ? { ...input, side: 0, forward: 0 } : input, 1 / CLOCK, room.settings.sprint);
+        stepBody(room.world, p, frozen ? { ...input, side: 0, forward: 0 } : input, 1 / CLOCK, room.settings.sprint, p.role === 'seeker' ? SEEKER_SPEED : 1);
       }
       p.moving = distance(p, before) > 0.015;
+      // Touch is enough: a seeker who reaches the hider with a clear path between them catches them.
+      if (p.role === 'seeker' && room.phase === 'seek' && !p.drone && hider?.socket &&
+          distance(p, hider) <= CATCH_RADIUS && canSee(room.world, p, hider)) {
+        finish(room, 'seeker', p.name + ' caught the hider!', p.name);
+        return;
+      }
       if (p === hider) {
         if (p.moving) follow(p, p.x - before.x, p.z - before.z);
         if (room.settings.npc) watch(room, p, input, t);

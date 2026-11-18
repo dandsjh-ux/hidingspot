@@ -471,15 +471,21 @@ export function occupied(world, x, z, stance = 0) {
   }
   return false;
 }
-export function stepBody(world, player, input, dt, sprint = true) {
+export const SEEKER_SPEED = 2;
+export const CATCH_RADIUS = 0.95;
+// Moves in short slices so a fast player can never skip through a thin wall in one step.
+export function stepBody(world, player, input, dt, sprint = true, boost = 1) {
   if (!occupied(world, player.x, player.z, input.stance)) player.stance = input.stance;
-  const speed = player.stance === 2 ? 2.0 : player.stance === 1 ? 3.15 : input.run && sprint ? 8.2 : 5.3;
+  const speed = (player.stance === 2 ? 2.0 : player.stance === 1 ? 3.15 : input.run && sprint ? 8.2 : 5.3) * boost;
   const scale = Math.max(1, Math.hypot(input.forward, input.side));
   const sin = Math.sin(input.yaw), cos = Math.cos(input.yaw);
   const dx = (input.side * cos - input.forward * sin) * speed * dt / scale;
   const dz = (-input.side * sin - input.forward * cos) * speed * dt / scale;
-  if (!occupied(world, player.x + dx, player.z, player.stance)) player.x += dx;
-  if (!occupied(world, player.x, player.z + dz, player.stance)) player.z += dz;
+  const slices = Math.max(1, Math.ceil(Math.hypot(dx, dz) / 0.25));
+  for (let i = 0; i < slices; i++) {
+    if (!occupied(world, player.x + dx / slices, player.z, player.stance)) player.x += dx / slices;
+    if (!occupied(world, player.x, player.z + dz / slices, player.stance)) player.z += dz / slices;
+  }
 }
 export function clearSight(world, from, to) {
   const dx = to.x - from.x, dz = to.z - from.z, dy = to.y - from.y;

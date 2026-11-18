@@ -25,12 +25,13 @@ Open `http://localhost:3000`. Use two browser tabs or devices to create a room a
 
 ## Play a round
 
-- **Hider.** Use the countdown to choose a hiding place. Cross a courtyard, crouch beside a hedge or go prone under a market table. Five buildings are open inside, so you can also slip into the bakery, school, café, pottery shop or church and hide behind a counter, a pillar or a pew. Stay hidden until the search clock runs out. When a villager notices you, you are not told straight away. Five seconds later a **!** appears on your map at that villager and floats over their head for a few seconds, so you learn that someone saw you but not at the moment it happened. Seekers see the same **!** on their map once the search starts, so a **!** shows them which villager to ask.
+- **Hider.** Use the countdown to choose a hiding place. Cross a courtyard, crouch beside a hedge or go prone under a market table. Five buildings are open inside, so you can also slip into the bakery, school, café, pottery shop or church and hide behind a counter, a pillar or a pew. Stay hidden until the search clock runs out. When a villager notices you, you are not told straight away. Five seconds later a **!** appears on your map at that villager and floats over their head for a few seconds, so you learn that someone saw you but not at the moment it happened. Seekers see the same **!** on their map once the search starts, so a **!** shows them which villager to ask. An orange arrow near the middle of a seeker's screen also points at each villager who has spotted the hider, with the villager's name and distance.
 - **Seekers.** Approach a villager and ask where they saw the hider go. Villagers wander a few steps and look around, so they may have moved since you last saw them. A villager notices the hider only with a clear view and while facing the right way. Moving and running hiders are noticed from further away than ones standing still, and crouching or prone hiders only from close by. A clue describes the last sighting (“inside the warm bakery”, “under the low wooden table”), so a moving hider may already have changed direction. A villager who saw nothing says “I do not know.”
 - **Names.** Every district has a signpost at two corners of its block. Named buildings have a large sign over the door and a hanging sign you can read along the street. The town map (**M**) labels each building. Gold buildings on the map have an open door.
 - **Search circles.** A circle marks an approximate area on the map. The readout names the district and counts down to the next update.
 - **Tools.** Binoculars zoom the first-person view. The drone uses the movement controls while the player stays on the ground. Its heat vision finds the hider within 25 metres, outdoors or inside a building, and shows a glowing outline through the roof. The hider's position stays pinged on the map for 10 seconds. The drone has a timed flight and needs to recharge.
-- **Finish.** Get close to the hider, face them and tag them. The results show the winner, the number of villagers who gave each seeker a clue and a short English question.
+- **Speed.** Seekers move twice as fast as the hider, walking, running, crouching and crawling alike.
+- **Finish.** Run into the hider to catch them. Touching them is enough, with no button to press, but a wall between you stops a catch. The results show the winner, the number of villagers who gave each seeker a clue and a short English question.
 
 | Action | Keyboard and mouse | Tablet |
 | --- | --- | --- |
@@ -38,7 +39,7 @@ Open `http://localhost:3000`. Use two browser tabs or devices to create a room a
 | Look | Click the view, then move the mouse | Drag the view |
 | Run | Hold Shift | Tap Run to toggle |
 | Crouch / prone | C / Z. Press again to stand | Tap Crouch / Prone |
-| Ask / tag | E | Tap the prompt near a villager or the hider |
+| Ask a villager | E | Tap the prompt near a villager |
 | Map | M | Tap the minimap |
 | Binoculars / drone | B / F | Tap the equipment buttons |
 | Game menu | P. Esc releases the mouse | Tap ☰ |
