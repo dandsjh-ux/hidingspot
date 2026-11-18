@@ -5,14 +5,15 @@ import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 import { Server } from 'socket.io';
 import {
-  makeWorld, stepBody, clamp, clearSight, eye, atHeight, direction, blockAt, distance, LANDMARKS
+  makeWorld, stepBody, clamp, clearSight, eye, atHeight, direction, blockAt, distance, LANDMARKS,
+  npcPose, npcNotices, insideOf
 } from './public/world.mjs';
 
 const root = fileURLToPath(new URL('.', import.meta.url));
 const CLOCK = 30;
 const RESUME_MS = 45000;
 const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-const pauseKeys = ['endsAt', 'seekAt', 'pingAt'];
+const pauseKeys = ['endsAt', 'seekAt', 'pingAt', 'startAt'];
 
 const settingRange = {
   seekers: [1, 5], hide: [10, 150], seek: [60, 900],
@@ -22,7 +23,7 @@ const settingRange = {
 };
 export const defaults = {
   seekers: 5, size: 5, seed: 2917, hide: 45, seek: 360, hiderMode: 'rotate', chosen: '',
-  locked: false, npc: true, witnessRadius: 8, clues: 'describe', pings: true, pingEvery: 60, pingRadius: 24,
+  locked: false, npc: true, walkers: true, witnessRadius: 8, clues: 'describe', pings: true, pingEvery: 60, pingRadius: 24,
   drone: true, droneAt: 105, droneSeconds: 18, droneCooldown: 50,
   scope: true, scopeAt: 40, sprint: true, moveHider: true
 };
@@ -39,7 +40,8 @@ const nameFrom = value => typeof value === 'string'
   : 'Explorer';
 const canSee = (world, viewer, player) => [0, 0.32].some(drop =>
   clearSight(world, eye(viewer), atHeight(player, Math.max(0.21, eye(player).y - drop))));
-const canSeeNPC = (world, player, npc) => clearSight(world, eye(player), atHeight(npc, 1.42));
+const canSeeNPC = (world, player, pose) => clearSight(world, eye(player), atHeight(pose, 1.42));
+const npcClock = (room, time) => Math.max(0, ((room.pausedAt || time) - room.startAt) / 1000);
 const anchors = {
   vineyard: 'hedge', gate: 'arcade', tower: 'tower', houses: 'building', orchard: 'tree', pottery: 'pot',
   church: 'chapel', blue: 'building', laundry: 'laundry', arcade: 'arcade', market: 'stall',
@@ -50,8 +52,10 @@ const coverWords = {
   platform: ['table', 'the low wooden table'], stall: ['stall', 'the striped market stall'],
   pergola: ['pergola', 'the leafy wooden pergola'], arcade: ['arch', 'the pale stone arch']
 };
-function witnessSpot(world, player) {
+export function witnessSpot(world, player) {
   const block = blockAt(world, player.x, player.z);
+  const room = insideOf(world, player.x, player.z);
+  if (room) return { block, relation: 'inside', place: room.place };
   let nearest, shortest = Infinity;
   for (const obj of world.objects) {
     const dx = Math.abs(player.x - obj.x), dz = Math.abs(player.z - obj.z);
@@ -83,7 +87,7 @@ function updateSettings(room, patch) {
   if (['rotate', 'random', 'pick'].includes(patch.hiderMode)) next.hiderMode = patch.hiderMode;
   if (typeof patch.chosen === 'string' && room.players.has(patch.chosen)) next.chosen = patch.chosen;
   if (['simple', 'describe'].includes(patch.clues)) next.clues = patch.clues;
-  for (const flag of ['locked', 'npc', 'pings', 'drone', 'scope', 'sprint', 'moveHider']) {
+  for (const flag of ['locked', 'npc', 'walkers', 'pings', 'drone', 'scope', 'sprint', 'moveHider']) {
     if (typeof patch[flag] === 'boolean') next[flag] = patch[flag];
   }
   return next;
@@ -177,8 +181,11 @@ export function createGameServer({ now = Date.now } = {}) {
     room.world = makeWorld(room.settings);
     room.result = null;
     room.witnesses.clear();
+    room.aware = new Map();
+    room.watchers = [];
     room.ping = null;
     room.pausedAt = 0;
+    room.startAt = time;
     room.seekAt = time + room.settings.hide * 1000;
     room.endsAt = room.seekAt;
     room.pingAt = room.seekAt + room.settings.pingEvery * 1000;
@@ -188,7 +195,7 @@ export function createGameServer({ now = Date.now } = {}) {
       const point = p === hider ? { x: -6, z: 5.9 } : spawn[(p.role === 'seeker' ? seeker++ : 0) % spawn.length];
       Object.assign(p, point, {
         yaw: 0, stance: 0, moving: false, input: { ...stop }, lastInputAt: 0,
-        drone: null, droneReady: 0, scope: false, clueCount: 0, clueIds: new Set(), lastAction: 0, lastSeq: 0
+        drone: null, droneReady: 0, scope: false, clueCount: 0, clueIds: new Set(), lastAction: 0, lastSeq: 0, heading: null, headingName: ''
       });
     }
     lobby(room);
@@ -207,19 +214,23 @@ export function createGameServer({ now = Date.now } = {}) {
       return;
     }
     const npc = Number.isInteger(data.npc) && room.world.npcs[data.npc];
-    if (data.mode !== 'tag' && room.settings.npc && npc && distance(p, npc) <= 4.3 && canSeeNPC(room.world, p, npc)) {
+    const pose = npc && npcPose(npc, npcClock(room, time), room.world.walkers);
+    if (data.mode !== 'tag' && room.settings.npc && npc && distance(p, pose) <= 4.3 && canSeeNPC(room.world, p, pose)) {
       const seen = room.witnesses.get(npc.id);
+      const speaker = npc.name, role = npc.role || 'villager';
       if (!seen) {
-        p.socket.emit('clue', { speaker: npc.name, text: 'I do not know. I did not see the hider.', terms: ['did not see'] });
+        p.socket.emit('clue', { speaker, role, text: 'I do not know. I did not see the hider.', terms: ['did not see'] });
         return;
       }
       const age = Math.max(0, Math.floor((time - seen.time) / 1000));
       const placeText = seen.place && (room.settings.clues === 'describe' ? seen.place[1] : 'the ' + seen.place[0]);
       const spot = placeText ? seen.relation + ' ' + placeText + ' in ' + seen.block.name : 'in ' + seen.block.name;
       if (!p.clueIds.has(npc.id)) { p.clueIds.add(npc.id); p.clueCount++; }
+      const heading = seen.direction ? 'They went ' + seen.direction + '.' : 'They were not moving.';
+      const word = seen.direction || 'not moving';
       p.socket.emit('clue', {
-        speaker: npc.name, text: 'I saw the hider ' + spot + '. They went ' + seen.direction + '.',
-        terms: placeText ? [seen.relation, placeText, seen.direction] : ['in', seen.direction], age
+        speaker, role, text: 'I saw the hider ' + spot + '. ' + heading,
+        terms: placeText ? [seen.relation, placeText, word] : ['in', word], age
       });
       return;
     }
@@ -388,6 +399,44 @@ export function createGameServer({ now = Date.now } = {}) {
     });
   });
 
+  // Keep a smoothed heading so a sighting reports where the hider was going, not one noisy step.
+  function follow(p, dx, dz) {
+    const len = Math.hypot(dx, dz);
+    if (len < 1e-6) return;
+    const h = p.heading || { x: dx / len, z: dz / len };
+    p.heading = { x: h.x * 0.93 + dx / len * 0.07, z: h.z * 0.93 + dz / len * 0.07 };
+    if (Math.hypot(p.heading.x, p.heading.z) > 0.2) p.headingName = direction(p.heading.x, p.heading.z);
+  }
+
+  // Villagers notice the hider gradually. Closer, moving and standing targets are noticed sooner,
+  // and a villager must be facing roughly the right way with a clear view.
+  function watch(room, hider, input, t) {
+    const clock = npcClock(room, t), dt = 1 / CLOCK, reach = room.settings.witnessRadius * 1.35 + 5;
+    const target = {
+      x: hider.x, z: hider.z, stance: hider.stance, moving: hider.moving,
+      run: hider.moving && input.run && hider.stance === 0 && room.settings.sprint
+    };
+    const watchers = [];
+    let spot;
+    for (const npc of room.world.npcs) {
+      let level = room.aware.get(npc.id) || 0;
+      let strength = 0;
+      if (distance(npc, hider) <= reach) {
+        const pose = npcPose(npc, clock, room.world.walkers);
+        strength = npcNotices(room.world, pose, target, room.settings.witnessRadius);
+      }
+      if (strength > 0) level = Math.min(1.5, level + dt * (1.1 + strength * 3.2));
+      else level = Math.max(0, level - dt * 0.8);
+      if (level > 0) room.aware.set(npc.id, level); else room.aware.delete(npc.id);
+      if (strength > 0 && level >= 1) {
+        spot ||= { ...witnessSpot(room.world, hider), direction: hider.headingName };
+        room.witnesses.set(npc.id, { ...spot, time: t });
+        watchers.push(npc.id);
+      }
+    }
+    room.watchers = watchers;
+  }
+
   function advance(room, t) {
     if (room.phase !== 'hide' && room.phase !== 'seek') return;
     if (room.pausedAt) return;
@@ -419,13 +468,9 @@ export function createGameServer({ now = Date.now } = {}) {
         stepBody(room.world, p, frozen ? { ...input, side: 0, forward: 0 } : input, 1 / CLOCK, room.settings.sprint);
       }
       p.moving = distance(p, before) > 0.015;
-      if (p === hider && p.moving && room.settings.npc) {
-        const witnesses = room.world.npcs.filter(npc =>
-          distance(npc, hider) <= room.settings.witnessRadius && canSeeNPC(room.world, hider, npc));
-        if (witnesses.length) {
-          const sighting = { ...witnessSpot(room.world, hider), time: t, direction: direction(p.x - before.x, p.z - before.z) };
-          for (const npc of witnesses) room.witnesses.set(npc.id, { ...sighting });
-        }
+      if (p === hider) {
+        if (p.moving) follow(p, p.x - before.x, p.z - before.z);
+        if (room.settings.npc) watch(room, p, input, t);
       }
     }
     if (room.phase === 'seek' && room.settings.pings && t >= room.pingAt && hider) {
@@ -464,7 +509,8 @@ export function createGameServer({ now = Date.now } = {}) {
       const remaining = Math.max(0, room.endsAt - time);
       const ping = seeking && room.ping?.until > time ? room.ping : null;
       p.socket.volatile.emit('state', {
-        round: room.round, phase: room.phase, remaining, paused: !!room.pausedAt,
+        round: room.round, phase: room.phase, remaining, paused: !!room.pausedAt, clock: npcClock(room, t),
+        watchers: p.role === 'hider' ? room.watchers : undefined,
         self: toWire(p), seq: p.lastSeq, others, contact, ping, npcEnabled,
         drone: p.drone ? { x: p.drone.x, z: p.drone.z, left: Math.max(0, p.drone.until - time) } : null,
         scope: p.scope, droneGate: seeking && room.settings.drone ?

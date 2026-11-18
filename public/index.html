@@ -59,7 +59,7 @@
     <canvas id="view" aria-label="First-person view of the Italian town"></canvas>
     <div id="look-zone" aria-hidden="true"></div>
     <div class="game-top">
-      <div class="hud place"><span id="role-text" class="eyebrow">HIDER</span><strong id="place">Fountain Plaza</strong></div>
+      <div class="hud place"><span id="role-text" class="eyebrow">HIDER</span><strong id="place">Fountain Plaza</strong><small id="near-building" hidden></small></div>
       <div class="hud clock"><span id="phase-label" class="eyebrow">HIDE</span><strong id="timer">0:00</strong></div>
       <button id="menu-button" class="hud hud-button" data-open="menu" aria-label="Game menu">☰</button>
     </div>
@@ -102,8 +102,8 @@
   </dialog>
   <dialog id="help">
     <div class="dialog-head"><h2>How to play</h2><button class="small-icon" data-close aria-label="Close instructions">×</button></div>
-    <p><strong>Hider.</strong> Find cover before the countdown ends. Stand behind a wall, crouch beside a hedge or go prone under a low stall. Stay hidden until time runs out.</p>
-    <p><strong>Seekers.</strong> Walk up to a villager and ask for a clue. Follow the directions and look at the map when a search circle appears. Get close to the hider, look at them and tag them.</p>
+    <p><strong>Hider.</strong> Find cover before the countdown ends. Stand behind a wall, crouch beside a hedge, go prone under a low stall or step inside an open building such as the bakery. Villagers who see you remember where you went. Stay hidden until time runs out.</p>
+    <p><strong>Seekers.</strong> Walk up to a villager and ask for a clue. Read the building signs and the town map to follow the directions. Follow the directions and look at the map when a search circle appears. Get close to the hider, look at them and tag them.</p>
     <p><strong>Keyboard.</strong> Use WASD or arrow keys and look with the mouse. Shift runs, C crouches and Z goes prone. Press E to ask or tag, M for the map, B for binoculars, F for the drone and P for the menu. Esc releases the mouse.</p>
     <p><strong>Tablet.</strong> Drag the left stick to move. Drag the town view to look around. Tap the stance, equipment and action buttons. Landscape gives you a wider view.</p>
     <p><strong>Drone.</strong> Use your movement controls to fly. The camera can spot the hider from above if the view is clear. Tap Drone again or press F to land.</p>
@@ -124,7 +124,7 @@
   </dialog>
   <dialog id="map">
     <div class="dialog-head"><h2>Town map</h2><button class="small-icon" data-close aria-label="Close town map">×</button></div>
-    <canvas id="large-map" width="560" height="560" aria-label="Town map with named districts"></canvas>
+    <canvas id="large-map" width="900" height="900" aria-label="Town map with named districts and buildings"></canvas>
     <p id="map-caption">The arrow shows where you are facing.</p>
   </dialog>
   <dialog id="results">

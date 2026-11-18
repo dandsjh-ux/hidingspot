@@ -3,8 +3,10 @@ import { once } from 'node:events';
 import { setTimeout as wait } from 'node:timers/promises';
 import { test } from 'node:test';
 import { io as client } from 'socket.io-client';
-import { createGameServer } from '../server.mjs';
-import { makeWorld, occupied, clearSight, direction, distance, stepBody, blockAt } from '../public/world.mjs';
+import { createGameServer, witnessSpot } from '../server.mjs';
+import {
+  makeWorld, occupied, clearSight, direction, distance, stepBody, blockAt, npcPose, npcNotices, insideOf
+} from '../public/world.mjs';
 
 test('town sizes, walkable spawn, walls, and clearance for crouching and going prone', () => {
   const town = makeWorld();
@@ -26,6 +28,91 @@ test('town sizes, walkable spawn, walls, and clearance for crouching and going p
   stepBody(town, body, { side: 0, forward: 1, yaw: 0, stance: 1 }, 0.1);
   assert.ok(body.z < 5.9);
   assert.equal(body.stance, 1);
+});
+
+
+test('named buildings have open interiors that a player can walk into and hide in', () => {
+  for (const size of [5, 3]) {
+    const town = makeWorld({ size });
+    const names = town.buildings.map(b => b.name);
+    for (const name of ['Bakery', 'School', 'Church', 'Pottery Shop', 'Market Hall']) assert.ok(names.includes(name), name);
+    assert.equal(town.interiors.length, size === 5 ? 5 : 4);
+    assert.ok(town.buildings.filter(b => b.enter).length === town.interiors.length);
+    for (const room of town.interiors) {
+      // Walk straight in through the door while standing.
+      const f = room.door.front;
+      const body = { x: room.door.x, z: room.door.z + f * 2.5, stance: 0 };
+      for (let i = 0; i < 60; i++) stepBody(town, body, { side: 0, forward: 1, yaw: f > 0 ? 0 : Math.PI, stance: 0 }, 1 / 30);
+      assert.equal(insideOf(town, body.x, body.z)?.id, room.id, room.name + ' door is walkable');
+      // Flood fill proves that the room has plenty of floor and a spot where only a prone player fits.
+      const step = 0.25, key = (x, z) => Math.floor(x / step + 0.3) + ',' + Math.floor(z / step + 0.3);
+      const reach = stance => {
+        const seen = new Set([key(body.x, body.z)]), stack = [{ x: body.x, z: body.z }], inside = [];
+        while (stack.length) {
+          const c = stack.pop();
+          if (insideOf(town, c.x, c.z)?.id === room.id) inside.push(c);
+          for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+            const n = { x: c.x + dx * step, z: c.z + dz * step }, k = key(n.x, n.z);
+            if (seen.has(k) || occupied(town, n.x, n.z, stance) || Math.abs(n.x - room.door.x) > 25 || Math.abs(n.z - room.door.z) > 25) continue;
+            seen.add(k); stack.push(n);
+          }
+        }
+        return inside;
+      };
+      const standing = reach(0), prone = reach(2);
+      assert.ok(standing.length > 60, room.name + ' has floor space');
+      assert.ok(prone.length > standing.length, room.name + ' has a low spot only a prone player fits');
+      // Roof and walls hide a player inside from the drone and from the street.
+      const mid = { x: (room.x0 + room.x1) / 2, z: (room.z0 + room.z1) / 2 };
+      assert.equal(clearSight(town, { x: mid.x, y: 33, z: mid.z }, { x: mid.x, y: 0.5, z: mid.z }), false);
+      assert.equal(clearSight(town, { x: room.x0 - 3, y: 1.5, z: mid.z }, { x: room.x0 + 0.8, y: 1.2, z: mid.z }), false);
+      // The doorway is open: you can see in from the doorstep.
+      const step1 = { x: room.door.x, y: 1.5, z: room.door.z + f * 2 };
+      const spot = standing.find(c => Math.abs(c.x - room.door.x) < 0.3 && Math.abs(c.z - room.door.z) > 1.2 && Math.abs(c.z - room.door.z) < 3);
+      assert.ok(clearSight(town, step1, { x: spot.x, y: 1.2, z: spot.z }), room.name + ' door is open to the view');
+      assert.deepEqual(witnessSpot(town, spot), { block: room.block, relation: 'inside', place: room.place });
+    }
+  }
+});
+
+test('villagers walk short routes that stay on open ground and are the same on every peer', () => {
+  const town = makeWorld(), twin = makeWorld();
+  for (const npc of town.npcs) {
+    assert.ok(npc.route, 'villager ' + npc.id + ' has a route');
+    const room = npc.inside != null;
+    let moved = 0;
+    for (let t = 0; t < npc.route.period; t += 0.4) {
+      const here = npcPose(npc, t), there = npcPose(twin.npcs[npc.id], t);
+      assert.deepEqual(here, there);
+      assert.equal(occupied(town, here.x, here.z, 0), false, 'villager ' + npc.id + ' is not inside a wall at ' + t);
+      assert.ok(distance(here, npc) < (room ? 2.2 : 4.2));
+      if (!room) assert.equal(insideOf(town, here.x, here.z), null);
+      if (here.moving) moved++;
+    }
+    assert.ok(moved > 2, 'villager ' + npc.id + ' actually walks');
+  }
+  const first = town.npcs[0];
+  assert.equal(npcPose(first, 3, false).x, first.x);
+  assert.ok(town.npcs.some(n => n.role === 'baker') && town.npcs.some(n => n.role === 'priest'));
+});
+
+test('villagers notice a hider by distance, stance, movement, facing and clear view', () => {
+  const town = makeWorld({ size: 3 });
+  const north = { x: 0, z: 19, yaw: Math.PI };
+  const at = (z, extra = {}) => ({ x: 0, z, stance: 0, moving: true, run: false, ...extra });
+  assert.ok(npcNotices(town, north, at(12), 8) > 0, 'a walking hider 7 m away is noticed');
+  assert.equal(npcNotices(town, north, at(12, { moving: false }), 8), 0, 'a still hider 7 m away is not');
+  assert.ok(npcNotices(town, north, at(16, { moving: false }), 8) > 0, 'a still hider 3 m away is');
+  assert.equal(npcNotices(town, north, at(12, { stance: 1 }), 8), 0, 'a crouching hider is harder to notice');
+  assert.ok(npcNotices(town, north, at(14, { stance: 1 }), 8) > 0);
+  assert.equal(npcNotices(town, north, at(14, { stance: 2 }), 8), 0, 'a prone hider is hardest');
+  assert.equal(npcNotices(town, north, at(9.2), 8), 0, 'walking 9.8 m away is out of range');
+  assert.ok(npcNotices(town, north, at(9.2, { run: true }), 8) > 0, 'running carries further');
+  assert.equal(npcNotices(town, { ...north, yaw: 0 }, at(12), 8), 0, 'a villager facing away does not see them');
+  assert.ok(npcNotices(town, { ...north, yaw: 0 }, at(17.5), 8) > 0, 'but they notice someone right behind them');
+  const house = town.objects.find(o => o.kind === 'building' && !o.enter);
+  const a = { x: house.x - house.w / 2 - 2, z: house.z, yaw: Math.PI / 2 };
+  assert.equal(npcNotices(town, a, { x: house.x + house.w / 2 + 2, z: house.z, stance: 0, moving: true }, 60), 0, 'walls block the view');
 });
 
 function until(socket, event, predicate = () => true, timeout = 5000) {
@@ -100,7 +187,7 @@ test('multiplayer capacity, host controls, witness memories, timed tools, taggin
   await cleared;
   assert.match((await emit(guest, 'host', { action: 'start' })).error, /Only the host/);
   assert.deepEqual(await emit(host, 'host', { action: 'settings', settings: {
-    hide: 10, seek: 60, pingEvery: 15, droneAt: 10, scopeAt: 5, size: 3
+    hide: 10, seek: 60, pingEvery: 15, droneAt: 10, scopeAt: 5, size: 3, walkers: false
   } }), { ok: true });
 
   const hiding = until(guest, 'state', s => s.phase === 'hide');
@@ -120,7 +207,7 @@ test('multiplayer capacity, host controls, witness memories, timed tools, taggin
   jump(10000);
   await until(guest, 'state', s => s.phase === 'seek');
 
-  const plaza = makeWorld({ size: 3 }).npcs;
+  const plaza = makeWorld({ size: 3, walkers: false }).npcs;
   const unseen = plaza.find(p => p.x === 7.4 && p.z === 5.3);
   const seen = plaza.find(p => p.x === -7.4 && p.z === -5.3);
   await steer(guest, 5.7, 8.0);
@@ -197,4 +284,29 @@ test('a player can reconnect while a seat is held and host controls move to a co
   const start = until(comeback, 'state', value => value.phase === 'hide');
   assert.deepEqual(await emit(second, 'host', { action: 'start' }), { ok: true });
   assert.equal((await start).self.id, a.id);
+});
+
+test('the hider is told which villagers are watching, and hiding low in the open keeps them unseen', { timeout: 25000 }, async t => {
+  const { connect } = await harness(t);
+  const [host, guest] = await Promise.all([connect(), connect()]);
+  const opened = until(host, 'identity');
+  await emit(host, 'create-room', { name: 'Hider' });
+  const { code } = await opened;
+  await emit(guest, 'join-room', { code, name: 'Seeker' });
+  await emit(host, 'host', { action: 'settings', settings: { hide: 60, seek: 120, size: 3, walkers: false } });
+  await emit(host, 'host', { action: 'start' });
+  await until(host, 'state', s => s.phase === 'hide' && s.self.role === 'hider');
+  assert.equal((await until(guest, 'state', s => s.phase === 'hide')).watchers, undefined);
+  const villager = makeWorld({ size: 3, walkers: false }).npcs.find(n => n.x === -7.4 && n.z === -5.3);
+  await steer(host, -6, 0);
+  await steer(host, -6, -3.6);
+  input(host);
+  const seen = await until(host, 'state', s => s.watchers?.includes(villager.id), 4000);
+  assert.ok(seen.watchers.length >= 1);
+  assert.equal(guest.latest.watchers, undefined);
+  // Moving away and going prone far from every villager lets the sighting fade.
+  await steer(host, -6, 4);
+  input(host, { stance: 2 });
+  const hidden = await until(host, 'state', s => s.self.stance === 2 && s.watchers?.length === 0, 6000);
+  assert.deepEqual(hidden.watchers, []);
 });

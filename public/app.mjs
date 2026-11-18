@@ -1,4 +1,4 @@
-import { CELL, DIRECTIONS, makeWorld, blockAt, clamp, distance, direction, clearSight, eye, atHeight, occupied, stepBody } from './world.mjs';
+import { CELL, DIRECTIONS, makeWorld, blockAt, clamp, distance, direction, clearSight, eye, atHeight, occupied, stepBody, npcPose, insideOf } from './world.mjs';
 
 const $ = id => document.getElementById(id);
 const button = (text, className, action) => {
@@ -16,6 +16,7 @@ const savePref = (key, value) => { try { localStorage.setItem(key, value); } cat
 let identity, room, scene, world, state, predicted, activeRound = 0, simulation = false, names = new Map();
 let localLobby = false, settingsDirty = false, currentClue, clueTimeout, noticeTimeout, statusTimeout, lastPing = 0;
 let joinMode = !!invite, noPointerLock = !('pointerLockElement' in document), building = false, buildNumber = 0;
+let clockOffset = 0, clockKnown = false, lastWatched = 0, watchedBefore = 0;
 let seq = 0, lastSent = 0, lastUI = 0, lastFrame = 0, fpsStart = 0, fpsFrames = 0, fpsApplied = false;
 let stance = 0, yaw = 0, pitch = 0, stick = { side: 0, forward: 0 }, stickId = null, lookPointer = null, touchRun = false;
 const keys = new Set(), pending = new Map(), maps = new Map();
@@ -126,7 +127,7 @@ const groups = [
     ['locked', 'Lock room to new players', 'check'], ['seed', 'Town variation seed', 1, 2147483647]
   ]],
   ['Villagers and vocabulary', [
-    ['npc', 'Villagers give clues', 'check'], ['witnessRadius', 'Villager sight radius (metres)', 3, 14],
+    ['npc', 'Villagers give clues', 'check'], ['walkers', 'Villagers walk around', 'check'], ['witnessRadius', 'Villager sight radius (metres)', 3, 14],
     ['clues', 'Clue difficulty', [['simple', 'Simple places'], ['describe', 'Descriptive phrases']]]
   ]],
   ['Search circles', [
@@ -283,7 +284,7 @@ async function enterRound() {
   const ticket = ++buildNumber;
   activeRound = room.round; localLobby = false; building = true; simulation = false;
   state = predicted = null; pending.clear(); maps.clear();
-  lastPing = seq = lastSent = 0;
+  lastPing = seq = lastSent = 0; clockKnown = false; watchedBefore = 0;
   lastUI = lastFrame = 0;
   yaw = pitch = stance = 0; fpsFrames = fpsStart = 0; fpsApplied = false;
   resetInput(); currentDialog()?.close(); closeClue();
@@ -298,7 +299,7 @@ async function enterRound() {
     if (ticket !== buildNumber || !live() || room.round !== activeRound) return;
     const next = makeWorld(room.settings);
     if (!scene) scene = new View($('view'), quality.value);
-    const changed = !world || world.seed !== next.seed || world.size !== next.size || room.settings.npc !== world.hasNPC;
+    const changed = !world || world.seed !== next.seed || world.size !== next.size || room.settings.npc !== world.hasNPC || next.walkers !== world.walkers;
     world = next; world.hasNPC = room.settings.npc;
     if (changed) scene.prepare(world, room.settings.npc);
     else { scene.eye = null; scene.wasDrone = false; }
@@ -319,6 +320,10 @@ socket.on('state', next => {
   if (!live() || next.round !== activeRound) return;
   const previous = state;
   state = { ...next, arrived: performance.now() };
+  // Villagers walk on a clock the server shares, so everyone sees them in the same place.
+  const sample = next.clock - state.arrived / 1000;
+  if (!clockKnown || next.paused || Math.abs(sample - clockOffset) > 0.6) { clockOffset = sample; clockKnown = true; }
+  else clockOffset += (sample - clockOffset) * (sample > clockOffset ? 0.3 : 0.05);
   if (!predicted) {
     predicted = { ...next.self };
     yaw = next.self.yaw; stance = next.self.stance;
@@ -347,7 +352,7 @@ socket.on('state', next => {
 socket.on('notice', notify);
 socket.on('clue', data => {
   currentClue = data;
-  $('speaker').textContent = data.speaker + ' · villager';
+  $('speaker').textContent = data.speaker + ' · ' + (data.role || 'villager');
   const paragraph = $('clue-text');
   paragraph.replaceChildren();
   let position = 0;
@@ -569,6 +574,7 @@ function send(command, reliable = false) {
   if (pending.size > 64) pending.delete(pending.keys().next().value);
   (reliable ? socket : socket.volatile).emit('input', { ...command, seq: next });
 }
+const npcClock = now => state.paused ? state.clock : now / 1000 + clockOffset;
 function targets() {
   if (!world || !active() || state.drone || state.phase !== 'seek' || state.self.role !== 'seeker') return {};
   const look = p => {
@@ -582,9 +588,11 @@ function targets() {
     if (len <= 2.9 && (angle > 0.06 || len < 0.75)) return { tag: true };
   }
   let best, bestScore = -Infinity;
+  const clock = npcClock(performance.now());
   if (state.npcEnabled) for (const npc of world.npcs) {
-    const { len, angle } = look(npc);
-    if (len > 4.2 || (angle < 0.05 && len > 2.2) || !clearSight(world, eye(predicted), atHeight(npc, 1.42))) continue;
+    const where = npcPose(npc, clock, world.walkers);
+    const { len, angle } = look(where);
+    if (len > 4.2 || (angle < 0.05 && len > 2.2) || !clearSight(world, eye(predicted), atHeight(where, 1.42))) continue;
     const score = angle * 3 - len * 0.3;
     if (score > bestScore) { bestScore = score; best = npc; }
   }
@@ -605,7 +613,7 @@ const mapColors = {
 };
 function drawMap(canvas, large) {
   if (!world || !predicted) return;
-  const size = canvas.width, pad = size * 0.06, span = size - pad * 2, unit = span / (world.bound * 2);
+  const size = canvas.width, pad = size * 0.06, span = size - pad * 2, unit = span / (world.bound * 2), k = size / 560;
   const x = value => pad + (value + world.bound) * unit, z = x;
   const ctx = canvas.getContext('2d');
   if (!maps.has(size)) {
@@ -613,22 +621,46 @@ function drawMap(canvas, large) {
     const map = background.getContext('2d');
     map.fillStyle = '#252f24'; map.fillRect(0, 0, size, size);
     map.fillStyle = '#414737'; map.fillRect(pad, pad, span, span);
+    map.textAlign = 'center'; map.textBaseline = 'middle'; map.lineJoin = 'round';
     for (const block of world.blocks) {
       const dx = x(block.x), dz = z(block.z), dim = CELL * 0.81 * unit;
       map.fillStyle = mapColors[block.type];
       map.beginPath(); map.roundRect(dx - dim / 2, dz - dim / 2, dim, dim, large ? 5 : 2); map.fill();
-      if (!large) continue;
-      const names = block.name.split(' ');
-      const first = names.slice(0, Math.ceil(names.length / 2)).join(' ');
-      const second = names.slice(Math.ceil(names.length / 2)).join(' ');
-      map.textAlign = 'center'; map.textBaseline = 'middle';
-      map.font = '700 ' + (world.size === 5 ? 11 : 16) + 'px system-ui';
-      map.fillStyle = '#242b20';
-      map.fillText(first, dx, dz - (second ? 7 : 0), dim - 7);
-      if (second) map.fillText(second, dx, dz + 8, dim - 7);
+    }
+    // Buildings: named ones are light. Gold ones have an open door, so a hider can go inside.
+    for (const o of world.objects) {
+      if (o.kind !== 'building') continue;
+      const w = o.w * unit, d = o.d * unit, cx = x(o.x), cz = z(o.z);
+      map.fillStyle = o.enter ? '#efcf7c' : o.name ? '#ddc89c' : '#8a7a5c';
+      map.fillRect(cx - w / 2, cz - d / 2, w, d);
+      map.strokeStyle = o.enter ? '#7a5a1e' : '#4d4330'; map.lineWidth = large ? 1.2 * k : 0.8; map.strokeRect(cx - w / 2, cz - d / 2, w, d);
+      if (o.enter) {
+        const front = o.face === 0 ? 1 : -1, door = Math.max(o.enter.doorW * unit, large ? 6 * k : 3);
+        map.fillStyle = '#2a2417';
+        map.fillRect(cx - door / 2, cz + front * d / 2 - (large ? 2 * k : 1.5), door, large ? 4 * k : 3);
+      }
+    }
+    if (large) {
+      const bFont = Math.round(Math.max(11, Math.min(19, unit * 2.9)) * k), dFont = Math.round(Math.max(10, Math.min(23, unit * 3.1)) * k);
+      for (const o of world.objects) {
+        if (o.kind !== 'building' || !o.name) continue;
+        const label = o.short || o.name, words = label.split(' '), cx = x(o.x), cz = z(o.z) - (o.tower ? o.d * unit / 2 + bFont * 0.75 : 0);
+        const lines = words.length > 1 && label.length > 8 ? [words.slice(0, Math.ceil(words.length / 2)).join(' '), words.slice(Math.ceil(words.length / 2)).join(' ')] : [label];
+        map.font = '800 ' + bFont + 'px system-ui, sans-serif';
+        lines.forEach((line, i) => {
+          const yy = cz + (i - (lines.length - 1) / 2) * bFont * 1.05;
+          map.lineWidth = 3.2 * k; map.strokeStyle = '#2a2417e6'; map.strokeText(line, cx, yy, Math.max(o.w * unit * 1.5, 50 * k));
+          map.fillStyle = o.enter ? '#ffe9a8' : '#fff6de'; map.fillText(line, cx, yy, Math.max(o.w * unit * 1.5, 50 * k));
+        });
+      }
+      // District names sit in the street below each block
+      map.font = '700 ' + dFont + 'px system-ui, sans-serif'; map.fillStyle = '#f0dca8';
+      for (const block of world.blocks) {
+        map.fillText(block.name.toUpperCase(), x(block.x), z(block.z) + CELL * 0.405 * unit + (CELL * 0.095 * unit) * 0.95, CELL * 0.97 * unit);
+      }
     }
     map.textAlign = 'center'; map.textBaseline = 'middle';
-    map.font = '800 ' + (large ? 18 : 12) + 'px system-ui'; map.fillStyle = '#ead29d';
+    map.font = '800 ' + (large ? 18 * k : 12) + 'px system-ui'; map.fillStyle = '#ead29d';
     map.fillText('N', size / 2, pad / 2 + (large ? 0 : 1));
     map.fillText('E', size - pad / 2, size / 2);
     if (large) {
@@ -666,7 +698,18 @@ function drawMap(canvas, large) {
   ctx.lineTo(0, marker * 0.32); ctx.lineTo(-marker * 0.65, marker * 0.7); ctx.closePath();
   ctx.fillStyle = '#fff1c5'; ctx.fill(); ctx.lineWidth = large ? 2 : 1.4; ctx.strokeStyle = '#1f2a20'; ctx.stroke();
   ctx.restore();
-  if (large) $('map-caption').textContent = ping ? 'The gold circle shows a possible search area.' : 'The arrow shows where you are facing.';
+  if (large) $('map-caption').textContent = (ping ? 'The gold circle shows a possible search area. ' : 'The arrow shows where you are facing. ') + 'Gold buildings have an open door: a hider can go inside.';
+}
+function nearBuilding() {
+  const px = state.drone?.x ?? predicted.x, pz = state.drone?.z ?? predicted.z;
+  const room = insideOf(world, px, pz);
+  if (room) return 'Inside the ' + room.name;
+  let best = '', shortest = 11;
+  for (const b of world.buildings) {
+    const gap = Math.hypot(Math.max(Math.abs(px - b.x) - b.w / 2, 0), Math.max(Math.abs(pz - b.z) - b.d / 2, 0));
+    if (gap < shortest) { shortest = gap; best = 'Near the ' + b.name; }
+  }
+  return best;
 }
 function hud(time) {
   const self = state.self, isHide = state.phase === 'hide', isSeeker = self.role === 'seeker';
@@ -678,6 +721,8 @@ function hud(time) {
   $('phase-label').textContent = state.paused ? 'PAUSED' : isHide ? 'HIDE' : 'SEEK';
   const area = blockAt(world, state.drone?.x ?? predicted.x, state.drone?.z ?? predicted.z);
   $('place').textContent = area.name;
+  const near = nearBuilding();
+  $('near-building').hidden = !near; $('near-building').textContent = near;
   const facing = state.drone ? 'north' : direction(-Math.sin(yaw), -Math.cos(yaw));
   $('compass').textContent = words(facing);
   $('stance-readout').textContent = ['Standing', 'Crouching', 'Prone'][predicted.stance];
@@ -701,8 +746,16 @@ function hud(time) {
     el.classList.toggle('ready', gate === 0); el.classList.toggle('on', running);
     el.firstElementChild.textContent = running ? (key === 'drone' ? 'Land drone' : 'Lower binoculars') : name + (gate > 0 ? ' ' + clock(gate) : '');
   }
-  $('ping-readout').hidden = state.nextPing == null;
-  $('ping-readout').textContent = state.ping ? 'Search near ' + state.ping.label : 'Search circle in ' + clock(state.nextPing);
+  const watched = state.watchers?.length || 0, hiderView = self.role === 'hider' && state.npcEnabled;
+  $('ping-readout').hidden = state.nextPing == null && !hiderView;
+  $('ping-readout').classList.toggle('seen', hiderView && watched > 0);
+  if (hiderView) {
+    $('ping-readout').textContent = watched ? 'Seen by ' + watched + (watched === 1 ? ' villager' : ' villagers') : 'No villager can see you';
+    if (watched > watchedBefore && time - lastWatched > 5000) { lastWatched = time; notify('A villager saw you!', 2200); }
+    watchedBefore = watched;
+  } else {
+    $('ping-readout').textContent = state.ping ? 'Search near ' + state.ping.label : 'Search circle in ' + clock(state.nextPing);
+  }
   const target = targets();
   const caption = target.tag ? 'Tag hider' : target.npc ? 'Ask ' + target.npc.name : '';
   $('game').classList.toggle('has-target', !!caption);
@@ -723,7 +776,7 @@ function frame(now) {
   if (active() && !state.drone) stepBody(world, predicted, canWalk ? command : { ...command, side: 0, forward: 0 }, dt, room.settings.sprint);
   if (now - lastSent >= 34) { send(command); lastSent = now; }
   if (!seekerBlind && predicted.role !== 'waiting') {
-    scene.draw(predicted, { yaw, pitch, walking: canWalk && Math.hypot(command.side, command.forward) > 0.1 }, state, now / 1000, dt, names);
+    scene.draw(predicted, { yaw, pitch, walking: canWalk && Math.hypot(command.side, command.forward) > 0.1 }, state, now / 1000, dt, names, npcClock(now));
     if (!fpsStart) fpsStart = now;
     fpsFrames++;
     if (!fpsApplied && now - fpsStart > 5200) {

@@ -25,8 +25,9 @@ Open `http://localhost:3000`. Use two browser tabs or devices to create a room a
 
 ## Play a round
 
-- **Hider.** Use the countdown to choose a hiding place. Cross a courtyard, crouch beside a hedge or go prone under a market table. Stay hidden until the search clock runs out.
-- **Seekers.** Approach a named villager and ask where they saw the hider go. A villager needs a clear view when the hider moves past. A clue describes the last sighting, so a moving hider may already have changed direction. A villager who saw nothing says “I do not know.”
+- **Hider.** Use the countdown to choose a hiding place. Cross a courtyard, crouch beside a hedge or go prone under a market table. Five buildings are open inside, so you can also slip into the bakery, school, café, pottery shop or church and hide behind a counter, a pillar or a pew. Stay hidden until the search clock runs out. A readout under the place name tells you how many villagers can see you, and a **!** floats over each villager who has noticed you.
+- **Seekers.** Approach a villager and ask where they saw the hider go. Villagers wander a few steps and look around, so they may have moved since you last saw them. A villager notices the hider only with a clear view and while facing the right way. Moving and running hiders are noticed from further away than ones standing still, and crouching or prone hiders only from close by. A clue describes the last sighting (“inside the warm bakery”, “under the low wooden table”), so a moving hider may already have changed direction. A villager who saw nothing says “I do not know.”
+- **Names.** Every district has a signpost at two corners of its block. Named buildings have a large sign over the door and a hanging sign you can read along the street. The town map (**M**) labels each building. Gold buildings on the map have an open door.
 - **Search circles.** A circle marks an approximate area on the map. The readout names the district and counts down to the next update.
 - **Tools.** Binoculars zoom the first-person view. The drone uses the movement controls while the player stays on the ground. It can spot the hider in an open area, has a timed flight and needs to recharge.
 - **Finish.** Get close to the hider, face them and tag them. The results show the winner, the number of villagers who gave each seeker a clue and a short English question.
@@ -53,7 +54,7 @@ Open `http://localhost:3000`. Use two browser tabs or devices to create a room a
 | Timers | 45 seconds to hide, 6 minutes to seek |
 | Hider assignment | Rotate each round. Random and host picks are also available |
 | Movement | Running allowed. Hider can move during the search |
-| Villagers | On. Sight radius 8 metres. Descriptive clues |
+| Villagers | On. They walk around. Sight radius 8 metres for a walking hider. Descriptive clues |
 | Search circles | On. Every 60 seconds. Radius 24 metres |
 | Binoculars | Unlock 40 seconds into the search |
 | Drone | Unlock 105 seconds into the search. 18-second flight. 50-second recharge |
@@ -62,6 +63,8 @@ The host can also vary the building palette and details with the town seed, lock
 
 ## Implementation
 
-The Node server runs movement and collision, role assignment, villager sightings, search circles, drone range, tagging and scoring. Three.js renders the town and players. The shared map generator builds the same town from the host’s settings on each browser. Play takes place in outdoor streets, courtyards, gardens and covered spaces. Building doors represent façades.
+The Node server runs movement and collision, role assignment, villager sightings, search circles, drone range, tagging and scoring. Three.js renders the town and players. The shared map generator builds the same town from the host’s settings on each browser. Play takes place in outdoor streets, courtyards, gardens, covered spaces and five enterable buildings (bakery, school, café, pottery shop and church). The other building doors are façades.
 
-Run `npm test` to verify map and cover geometry, multiplayer capacity, connection recovery, host permissions, visibility, round timing, clues, equipment and scoring.
+Villager routes and looks come from the town seed, and a villager's position is a function of a shared round clock, so the server and every browser agree where each villager stands. A villager's chance to notice the hider depends on distance, stance, movement, the way the villager faces and a clear line of sight. Awareness builds over a moment, so a quick dash past at the edge of sight can go unnoticed.
+
+Run `npm test` to verify map, interior and cover geometry, villager routes and awareness, multiplayer capacity, connection recovery, host permissions, visibility, round timing, clues, equipment and scoring.
