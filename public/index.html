@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#22271e">
+  <title>Hiding Spot</title>
+  <link rel="icon" href="/assets/mark.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/styles.css">
+  <script type="importmap">{"imports":{"three":"/vendor/three/three.module.js","three/addons/":"/vendor/addons/"}}</script>
+</head>
+<body>
+  <main id="landing" class="landing">
+    <header class="site-head"><a class="brand" href="/" aria-label="Hiding Spot home"><img src="/assets/mark.svg" alt=""><span>Hiding Spot</span></a><button type="button" class="ghost header-help" data-open="help">How to play</button></header>
+    <div class="cover-credit" aria-hidden="true"><span></span> FONTANA VECCHIA <span></span></div>
+    <section class="entrance">
+      <div class="eyebrow">A MULTIPLAYER ENGLISH GAME</div>
+      <h1>Hiding<br><em>Spot.</em></h1>
+      <p class="intro">Hide in a golden Italian town. Follow the villagers’ clues to find your friend.</p>
+      <form id="entry-form" class="entry-form">
+        <label for="screen-name">Your nickname</label>
+        <input id="screen-name" name="nickname" maxlength="18" placeholder="e.g. Olive Fox" autocomplete="off">
+        <div id="room-field" hidden>
+          <label for="room-input">Room code</label>
+          <input id="room-input" name="room" maxlength="5" placeholder="ABCDE" autocomplete="off" autocapitalize="characters" spellcheck="false">
+        </div>
+        <p id="entry-error" class="alert" role="status" hidden></p>
+        <div class="entry-buttons"><button id="entry-main" class="primary" type="submit">Create room <span aria-hidden="true">→</span></button><button id="entry-alternate" class="ghost" type="button">Join a room</button></div>
+      </form>
+      <div class="cover-spec"><span>2–6 players</span><span>Keyboard &amp; tablet</span></div>
+    </section>
+  </main>
+
+  <main class="room-screen" id="room-screen" hidden>
+    <header class="room-head"><div class="brand"><img src="/assets/mark.svg" alt=""><span>Hiding Spot</span></div><div class="head-actions"><button class="ghost" data-open="help">How to play</button><button class="ghost" data-leave>Leave room</button></div></header>
+    <div class="room-content">
+      <section class="room-top">
+        <div><div class="eyebrow">FONTANA VECCHIA</div><h1>Town lobby</h1><p>Share the room code with your players.</p></div>
+        <div class="code-box"><div><span class="eyebrow">ROOM CODE</span><strong id="room-code">—</strong></div><button id="copy" class="primary compact">Copy invite</button></div>
+      </section>
+      <div class="room-grid">
+        <section class="paper player-panel">
+          <div class="panel-head"><h2>Players</h2><span id="capacity" class="chip"></span></div>
+          <ul id="roster"></ul>
+          <div id="game-summary" class="game-summary"></div>
+          <p class="alert" id="room-error" role="status" hidden></p>
+          <button id="start" class="primary wide" hidden>Start round <span aria-hidden="true">→</span></button>
+          <p id="waiting" class="waiting">Waiting for the host.</p>
+        </section>
+        <section class="paper settings-panel">
+          <div class="panel-head"><h2 id="settings-title">Host controls</h2></div>
+          <form id="settings-form"><div id="settings"></div><div class="settings-foot"><button id="save-settings" class="primary compact" type="submit" hidden>Save settings</button><span id="save-status" role="status"></span></div></form>
+        </section>
+      </div>
+    </div>
+  </main>
+
+  <main id="game" class="game" hidden>
+    <canvas id="view" aria-label="First-person view of the Italian town"></canvas>
+    <div id="look-zone" aria-hidden="true"></div>
+    <div class="game-top">
+      <div class="hud place"><span id="role-text" class="eyebrow">HIDER</span><strong id="place">Fountain Plaza</strong></div>
+      <div class="hud clock"><span id="phase-label" class="eyebrow">HIDE</span><strong id="timer">0:00</strong></div>
+      <button id="menu-button" class="hud hud-button" data-open="menu" aria-label="Game menu">☰</button>
+    </div>
+    <div id="compass" class="hud compass"></div>
+    <div class="game-map"><button id="map-button" class="minimap" data-open="map" aria-label="Open town map"><canvas id="mini-map" width="194" height="194"></canvas><span>Town map <kbd>M</kbd></span></button></div>
+    <div id="drone-readout" class="hud drone-readout" hidden></div>
+    <div id="aim" aria-hidden="true"></div>
+    <div id="blocked-view" hidden><div class="hud blocked-card"><div class="eyebrow" id="blocked-kicker"></div><h2 id="blocked-title"></h2><p id="blocked-text"></p></div></div>
+    <div id="center-status" class="hud center-status" aria-live="polite" hidden></div>
+    <div id="action-zone"><button id="action-button" class="hud hud-button" hidden>Ask</button><div id="aim-prompt" class="hud" hidden></div></div>
+    <section id="clue" class="hud clue" hidden aria-live="polite">
+      <div class="panel-head"><strong id="speaker"></strong><button id="clue-close" class="small-icon" aria-label="Close clue">×</button></div>
+      <p id="clue-text"></p><div class="clue-actions"><small id="clue-age"></small><button id="listen" class="ghost compact">Listen</button><button class="ghost compact" data-open="words">Word help</button></div>
+    </section>
+    <div id="touch-pad" aria-label="Move"><div id="stick"></div></div>
+    <div id="touch-moves">
+      <button id="run" class="hud hud-button" aria-pressed="false">Run</button>
+      <button id="crouch" class="hud hud-button" aria-pressed="false">Crouch</button>
+      <button id="prone" class="hud hud-button" aria-pressed="false">Prone</button>
+    </div>
+    <div id="tools" class="hud tools">
+      <span id="stance-readout">Standing</span>
+      <button id="scope" class="tool" hidden><span>Binoculars</span> <kbd>B</kbd></button>
+      <button id="drone" class="tool" hidden><span>Drone</span> <kbd>F</kbd></button>
+    </div>
+    <div id="ping-readout" class="hud ping-readout" hidden></div>
+    <button id="capture" class="primary capture" hidden>Click to look around</button>
+    <div id="game-notice" class="hud game-notice" aria-live="polite" hidden></div>
+  </main>
+
+  <dialog id="menu">
+    <div class="dialog-head"><h2>Game menu</h2><button type="button" class="small-icon" data-close aria-label="Close menu">×</button></div>
+    <button class="primary wide" data-close>Resume controls</button>
+    <div id="host-live" hidden><button id="pause" class="ghost wide">Pause round</button><button id="end-round" class="ghost wide">End round</button></div>
+    <div class="menu-options">
+      <label>Graphics <select id="quality"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></label>
+      <label>Controls <select id="input-mode"><option value="auto">Automatic</option><option value="keyboard">Keyboard and mouse</option><option value="touch">Touch</option></select></label>
+    </div>
+    <div class="dialog-actions"><button class="ghost" data-open="help">How to play</button><button class="ghost" data-open="words">Word help</button><button class="ghost" data-leave>Leave room</button></div>
+  </dialog>
+  <dialog id="help">
+    <div class="dialog-head"><h2>How to play</h2><button class="small-icon" data-close aria-label="Close instructions">×</button></div>
+    <p><strong>Hider.</strong> Find cover before the countdown ends. Stand behind a wall, crouch beside a hedge or go prone under a low stall. Stay hidden until time runs out.</p>
+    <p><strong>Seekers.</strong> Walk up to a villager and ask for a clue. Follow the directions and look at the map when a search circle appears. Get close to the hider, look at them and tag them.</p>
+    <p><strong>Keyboard.</strong> Use WASD or arrow keys and look with the mouse. Shift runs, C crouches and Z goes prone. Press E to ask or tag, M for the map, B for binoculars, F for the drone and P for the menu. Esc releases the mouse.</p>
+    <p><strong>Tablet.</strong> Drag the left stick to move. Drag the town view to look around. Tap the stance, equipment and action buttons. Landscape gives you a wider view.</p>
+    <p><strong>Drone.</strong> Use your movement controls to fly. The camera can spot the hider from above if the view is clear. Tap Drone again or press F to land.</p>
+  </dialog>
+  <dialog id="words">
+    <div class="dialog-head"><h2>Word help</h2><button class="small-icon" data-close aria-label="Close word help">×</button></div>
+    <dl class="words-list">
+      <dt>near / beside</dt><dd>Close to something. “I hid beside the fountain.”</dd>
+      <dt>behind</dt><dd>At the back of something. “She is behind the hedge.”</dd>
+      <dt>under</dt><dd>Below something. “I crawled under the stall.”</dd>
+      <dt>across</dt><dd>From one side to the other. “Walk across the bridge.”</dd>
+      <dt>north / east / south / west</dt><dd>Directions. On the town map, north is up and east is right.</dd>
+      <dt>striped</dt><dd>With bands of colour. “Look near the striped stall.”</dd>
+      <dt>shady</dt><dd>Out of the sunlight. “They went past the shady trees.”</dd>
+      <dt>shutters</dt><dd>Covers on the sides of a window.</dd>
+      <dt>prone</dt><dd>Lying on your front, close to the ground.</dd>
+    </dl>
+  </dialog>
+  <dialog id="map">
+    <div class="dialog-head"><h2>Town map</h2><button class="small-icon" data-close aria-label="Close town map">×</button></div>
+    <canvas id="large-map" width="560" height="560" aria-label="Town map with named districts"></canvas>
+    <p id="map-caption">The arrow shows where you are facing.</p>
+  </dialog>
+  <dialog id="results">
+    <div class="dialog-head"><h2 id="result-title">Round finished</h2></div>
+    <p id="result-text"></p>
+    <div id="result-stats"></div>
+    <div id="practice" class="practice">
+      <strong>Quick English check</strong>
+      <p id="practice-question"></p><div id="answers"></div><p id="practice-feedback" role="status"></p>
+    </div>
+    <div class="dialog-actions"><button id="result-lobby" class="ghost">Town lobby</button><button id="result-next" class="primary">Next round</button><button class="ghost" data-leave>Leave room</button></div>
+  </dialog>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script type="module" src="/app.mjs"></script>
+</body>
+</html>

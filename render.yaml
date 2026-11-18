@@ -1,0 +1,12 @@
+services:
+  - type: web
+    runtime: node
+    name: hiding-spot
+    plan: free
+    numInstances: 1
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_VERSION
+        value: 22.21.1
