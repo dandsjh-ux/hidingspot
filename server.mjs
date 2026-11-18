@@ -12,6 +12,7 @@ import {
 const root = fileURLToPath(new URL('.', import.meta.url));
 const CLOCK = 30;
 const RESUME_MS = 45000;
+const ALERT_DELAY = 5000, ALERT_SHOW = 8000, PING_MS = 10000, DRONE_SENSE = 25;
 const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const pauseKeys = ['endsAt', 'seekAt', 'pingAt', 'startAt'];
 
@@ -182,7 +183,8 @@ export function createGameServer({ now = Date.now } = {}) {
     room.result = null;
     room.witnesses.clear();
     room.aware = new Map();
-    room.watchers = [];
+    room.pending = new Map();
+    room.alerts = new Map();
     room.ping = null;
     room.pausedAt = 0;
     room.startAt = time;
@@ -195,7 +197,7 @@ export function createGameServer({ now = Date.now } = {}) {
       const point = p === hider ? { x: -6, z: 5.9 } : spawn[(p.role === 'seeker' ? seeker++ : 0) % spawn.length];
       Object.assign(p, point, {
         yaw: 0, stance: 0, moving: false, input: { ...stop }, lastInputAt: 0,
-        drone: null, droneReady: 0, scope: false, clueCount: 0, clueIds: new Set(), lastAction: 0, lastSeq: 0, heading: null, headingName: ''
+        drone: null, droneReady: 0, scope: false, clueCount: 0, clueIds: new Set(), lastAction: 0, lastSeq: 0, heading: null, headingName: '', contact: null
       });
     }
     lobby(room);
@@ -330,6 +332,9 @@ export function createGameServer({ now = Date.now } = {}) {
               if (p.droneReady) p.droneReady += shift;
             }
             for (const witness of room.witnesses.values()) witness.time += shift;
+            for (const [id, since] of room.pending) room.pending.set(id, since + shift);
+            for (const [id, until] of room.alerts) room.alerts.set(id, until + shift);
+            for (const p of room.players.values()) if (p.contact) p.contact.until += shift;
             room.pausedAt = 0;
           } else {
             room.pausedAt = t;
@@ -416,7 +421,6 @@ export function createGameServer({ now = Date.now } = {}) {
       x: hider.x, z: hider.z, stance: hider.stance, moving: hider.moving,
       run: hider.moving && input.run && hider.stance === 0 && room.settings.sprint
     };
-    const watchers = [];
     let spot;
     for (const npc of room.world.npcs) {
       let level = room.aware.get(npc.id) || 0;
@@ -431,10 +435,16 @@ export function createGameServer({ now = Date.now } = {}) {
       if (strength > 0 && level >= 1) {
         spot ||= { ...witnessSpot(room.world, hider), direction: hider.headingName };
         room.witnesses.set(npc.id, { ...spot, time: t });
-        watchers.push(npc.id);
+        // The hider is told five seconds later, so a sighting never gives itself away at once.
+        if (!room.alerts.has(npc.id) && !room.pending.has(npc.id)) room.pending.set(npc.id, t);
       }
     }
-    room.watchers = watchers;
+    for (const [id, since] of room.pending) {
+      if (t - since < ALERT_DELAY) continue;
+      room.pending.delete(id);
+      room.alerts.set(id, t + ALERT_SHOW);
+    }
+    for (const [id, until] of room.alerts) if (t >= until) room.alerts.delete(id);
   }
 
   function advance(room, t) {
@@ -499,18 +509,19 @@ export function createGameServer({ now = Date.now } = {}) {
           if ((other.role === p.role || distance(p, other) < (p.scope ? 120 : 57)) && canSee(room.world, p, other)) {
             others.push(toWire(other));
           }
-          if (p.drone && other.role === 'hider' && distance(p.drone, other) < 25 &&
-            clearSight(room.world, atHeight(p.drone, 33), eye(other))) {
-            contact = toWire(other);
-          }
         }
+        // Heat vision: the drone finds the hider within range through roofs and cover, and the ping lasts 10 seconds.
+        const hider = room.players.get(room.hider);
+        const live = !!(p.drone && hider?.socket && distance(p.drone, hider) < DRONE_SENSE);
+        if (live) p.contact = { ...toWire(hider), until: time + PING_MS };
+        if (p.contact && p.contact.until > time) contact = { ...p.contact, live, left: p.contact.until - time };
       }
       const npcEnabled = room.settings.npc;
       const remaining = Math.max(0, room.endsAt - time);
       const ping = seeking && room.ping?.until > time ? room.ping : null;
       p.socket.volatile.emit('state', {
         round: room.round, phase: room.phase, remaining, paused: !!room.pausedAt, clock: npcClock(room, t),
-        watchers: p.role === 'hider' ? room.watchers : undefined,
+        alerts: p.role === 'hider' ? [...room.alerts.keys()] : undefined,
         self: toWire(p), seq: p.lastSeq, others, contact, ping, npcEnabled,
         drone: p.drone ? { x: p.drone.x, z: p.drone.z, left: Math.max(0, p.drone.until - time) } : null,
         scope: p.scope, droneGate: seeking && room.settings.drone ?

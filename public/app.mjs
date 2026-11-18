@@ -689,8 +689,29 @@ function drawMap(canvas, large) {
     ctx.strokeRect(x(state.drone.x) - 3, z(state.drone.z) - 3, 6, 6);
   }
   if (state?.contact) {
-    ctx.beginPath(); ctx.arc(x(state.contact.x), z(state.contact.z), large ? 6 : 4, 0, 6.283);
-    ctx.strokeStyle = '#f7a56f'; ctx.lineWidth = 2; ctx.stroke();
+    // Drone ping: pulsing heat rings that stay for ten seconds, dashed once the drone has lost the signal
+    const c = state.contact, beat = (performance.now() / 900) % 1, base = large ? 7 : 4.5;
+    ctx.save();
+    ctx.strokeStyle = '#ff7a2e'; ctx.fillStyle = '#ff7a2e55'; ctx.lineWidth = large ? 3 : 2;
+    if (!c.live) ctx.setLineDash([4, 3]);
+    ctx.beginPath(); ctx.arc(x(c.x), z(c.z), base, 0, 6.283); ctx.fill(); ctx.stroke();
+    ctx.globalAlpha = 1 - beat; ctx.beginPath(); ctx.arc(x(c.x), z(c.z), base + beat * base * 2.4, 0, 6.283); ctx.stroke();
+    ctx.restore();
+  }
+  if (state?.self.role === 'hider') {
+    // A villager saw you five seconds ago. The alert sits on the villager who noticed.
+    const at = npcClock(performance.now());
+    for (const id of state.alerts || []) {
+      const npc = world.npcs[id];
+      if (!npc) continue;
+      const where = npcPose(npc, at, world.walkers), r = large ? 11 : 6.5, pulse = 1 + Math.sin(performance.now() / 160) * 0.12;
+      ctx.save(); ctx.translate(x(where.x), z(where.z)); ctx.scale(pulse, pulse);
+      ctx.beginPath(); ctx.arc(0, 0, r, 0, 6.283);
+      ctx.fillStyle = '#f2a33a'; ctx.fill(); ctx.lineWidth = large ? 2 : 1.4; ctx.strokeStyle = '#2b1d0c'; ctx.stroke();
+      ctx.fillStyle = '#2b1d0c'; ctx.font = '900 ' + Math.round(r * 1.5) + 'px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('!', 0, r * 0.08);
+      ctx.restore();
+    }
   }
   ctx.save(); ctx.translate(x(predicted.x), z(predicted.z)); ctx.rotate(-yaw);
   const marker = large ? 10 : 6;
@@ -738,7 +759,7 @@ function hud(time) {
   $('prone').setAttribute('aria-pressed', predicted.stance === 2);
   $('game').classList.toggle('drone-flight', !!state.drone);
   $('drone-readout').hidden = !state.drone;
-  if (state.drone) $('drone-readout').textContent = 'Drone view · ' + clock(state.drone.left) + (state.contact ? ' · Hider in view' : '');
+  if (state.drone) $('drone-readout').textContent = 'Drone view · ' + clock(state.drone.left) + (state.contact?.live ? ' · HEAT SIGNATURE FOUND' : state.contact ? ' · Ping ' + clock(state.contact.left) : '');
   for (const [key, name] of [['scope', 'Binoculars'], ['drone', 'Drone']]) {
     const el = $(key), gate = state[key + 'Gate'], running = !!state[key];
     el.hidden = gate == null;
@@ -746,12 +767,12 @@ function hud(time) {
     el.classList.toggle('ready', gate === 0); el.classList.toggle('on', running);
     el.firstElementChild.textContent = running ? (key === 'drone' ? 'Land drone' : 'Lower binoculars') : name + (gate > 0 ? ' ' + clock(gate) : '');
   }
-  const watched = state.watchers?.length || 0, hiderView = self.role === 'hider' && state.npcEnabled;
-  $('ping-readout').hidden = state.nextPing == null && !hiderView;
+  const watched = state.alerts?.length || 0, hiderView = self.role === 'hider' && state.npcEnabled;
+  $('ping-readout').hidden = hiderView ? watched === 0 : state.nextPing == null;
   $('ping-readout').classList.toggle('seen', hiderView && watched > 0);
   if (hiderView) {
-    $('ping-readout').textContent = watched ? 'Seen by ' + watched + (watched === 1 ? ' villager' : ' villagers') : 'No villager can see you';
-    if (watched > watchedBefore && time - lastWatched > 5000) { lastWatched = time; notify('A villager saw you!', 2200); }
+    $('ping-readout').textContent = '! ' + watched + (watched === 1 ? ' villager saw you. Check your map.' : ' villagers saw you. Check your map.');
+    if (watched > watchedBefore && time - lastWatched > 1000) { lastWatched = time; notify('! A villager saw you. Check your map.', 3200); }
     watchedBefore = watched;
   } else {
     $('ping-readout').textContent = state.ping ? 'Search near ' + state.ping.label : 'Search circle in ' + clock(state.nextPing);

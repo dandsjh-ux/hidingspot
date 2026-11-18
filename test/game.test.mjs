@@ -286,27 +286,97 @@ test('a player can reconnect while a seat is held and host controls move to a co
   assert.equal((await start).self.id, a.id);
 });
 
-test('the hider is told which villagers are watching, and hiding low in the open keeps them unseen', { timeout: 25000 }, async t => {
-  const { connect } = await harness(t);
+test('the hider hears about a sighting only after five seconds, and the alert then fades', { timeout: 25000 }, async t => {
+  const { connect, jump } = await harness(t);
   const [host, guest] = await Promise.all([connect(), connect()]);
   const opened = until(host, 'identity');
   await emit(host, 'create-room', { name: 'Hider' });
   const { code } = await opened;
   await emit(guest, 'join-room', { code, name: 'Seeker' });
-  await emit(host, 'host', { action: 'settings', settings: { hide: 60, seek: 120, size: 3, walkers: false } });
+  await emit(host, 'host', { action: 'settings', settings: { hide: 150, seek: 300, size: 3, walkers: false } });
   await emit(host, 'host', { action: 'start' });
   await until(host, 'state', s => s.phase === 'hide' && s.self.role === 'hider');
-  assert.equal((await until(guest, 'state', s => s.phase === 'hide')).watchers, undefined);
+  assert.equal((await until(guest, 'state', s => s.phase === 'hide')).alerts, undefined);
   const villager = makeWorld({ size: 3, walkers: false }).npcs.find(n => n.x === -7.4 && n.z === -5.3);
   await steer(host, -6, 0);
   await steer(host, -6, -3.6);
   input(host);
-  const seen = await until(host, 'state', s => s.watchers?.includes(villager.id), 4000);
-  assert.ok(seen.watchers.length >= 1);
-  assert.equal(guest.latest.watchers, undefined);
-  // Moving away and going prone far from every villager lets the sighting fade.
+  // The villager has already noticed the hider, but nothing is shown yet.
+  await wait(500);
+  assert.deepEqual(host.latest.alerts, []);
+  jump(3000);
+  await wait(200);
+  assert.deepEqual(host.latest.alerts, [], 'still nothing after three seconds');
+  jump(3000);
+  const alert = await until(host, 'state', s => s.alerts?.includes(villager.id), 3000);
+  assert.ok(alert.alerts.length >= 1);
+  assert.equal(guest.latest.alerts, undefined);
+  // Move away and go prone. The alert fades after a few seconds.
   await steer(host, -6, 4);
   input(host, { stance: 2 });
-  const hidden = await until(host, 'state', s => s.self.stance === 2 && s.watchers?.length === 0, 6000);
-  assert.deepEqual(hidden.watchers, []);
+  jump(9000);
+  await wait(300);
+  jump(9000);
+  const quiet = await until(host, 'state', s => s.self.stance === 2 && s.alerts?.length === 0, 4000);
+  assert.deepEqual(quiet.alerts, []);
+});
+
+// Shortest walkable path on a half-metre grid, so a test can march a player to a spot indoors.
+function route(world, from, to) {
+  const step = 0.5, key = (x, z) => Math.round(x / step) + ',' + Math.round(z / step);
+  const start = { x: Math.round(from.x / step) * step, z: Math.round(from.z / step) * step };
+  const prev = new Map([[key(start.x, start.z), null]]), queue = [start];
+  for (let i = 0; i < queue.length; i++) {
+    const c = queue[i];
+    if (distance(c, to) < 0.6) {
+      const path = [];
+      for (let p = c; p; p = prev.get(key(p.x, p.z))) path.push(p);
+      return path.reverse();
+    }
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+      const n = { x: c.x + dx * step, z: c.z + dz * step }, k = key(n.x, n.z);
+      if (!prev.has(k) && !occupied(world, n.x, n.z, 0)) { prev.set(k, c); queue.push(n); }
+    }
+  }
+  return null;
+}
+
+test('the drone finds a hider inside a building with heat vision, and the ping lasts ten seconds', { timeout: 45000 }, async t => {
+  const { connect, jump } = await harness(t);
+  const [host, guest] = await Promise.all([connect(), connect()]);
+  const opened = until(host, 'identity');
+  await emit(host, 'create-room', { name: 'Hider' });
+  const { code, id: hiderId } = await opened;
+  await emit(guest, 'join-room', { code, name: 'Seeker' });
+  await emit(host, 'host', { action: 'settings', settings: { hide: 12, seek: 200, size: 3, walkers: false, droneAt: 10, droneSeconds: 35 } });
+  await emit(host, 'host', { action: 'start' });
+  await until(host, 'state', s => s.phase === 'hide' && s.self.role === 'hider');
+  const town = makeWorld({ size: 3, walkers: false });
+  const bakery = town.interiors.find(r => r.name === 'Bakery');
+  const inside = { x: (bakery.x0 + bakery.x1) / 2 + 1, z: (bakery.z0 + bakery.z1) / 2 };
+  const path = route(town, host.latest.self, inside);
+  assert.ok(path, 'there is a way into the bakery');
+  for (const point of path.filter((_, i) => i % 2 === 0 || i === path.length - 1)) await steer(host, point.x, point.z);
+  assert.equal(insideOf(town, host.latest.self.x, host.latest.self.z)?.name, 'Bakery');
+  jump(13000);
+  await until(guest, 'state', s => s.phase === 'seek' && s.droneGate === 0);
+  guest.emit('action', { action: 'tool', tool: 'drone' });
+  let flight = await until(guest, 'state', s => !!s.drone);
+  assert.equal(flight.contact, null, 'out of range at first');
+  for (let i = 0; i < 160 && !guest.latest.contact?.live; i++) { input(guest, { side: -1, forward: -0.35 }); await wait(32); }
+  input(guest);
+  const found = guest.latest.contact;
+  assert.ok(found?.live, 'heat vision locks on');
+  assert.equal(found.id, hiderId);
+  assert.equal(insideOf(town, found.x, found.z)?.name, 'Bakery');
+  assert.equal(clearSight(town, { x: found.x, y: 33, z: found.z }, { x: found.x, y: 1.6, z: found.z }), false, 'a roof is in the way');
+  assert.ok(found.left > 9000);
+  await wait(400);
+  guest.emit('action', { action: 'tool', tool: 'drone' });
+  const landed = await until(guest, 'state', s => !s.drone && s.contact);
+  assert.equal(landed.contact.live, false);
+  assert.equal(landed.contact.id, hiderId);
+  assert.ok(landed.contact.left > 0 && landed.contact.left <= 10000);
+  jump(11000);
+  assert.equal((await until(guest, 'state', s => s.contact === null)).contact, null);
 });

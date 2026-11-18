@@ -708,6 +708,25 @@ function part(kind, color, [x, y, z], [sx, sy, sz], [rx, ry, rz] = [0, 0, 0]) {
 }
 const merged = list => mergeGeometries(list);
 const actorMaterial = new T.MeshStandardMaterial({ vertexColors: true, roughness: 0.82, metalness: 0 });
+// Heat vision for the drone: a flat thermal glow that draws through roofs and walls, hot in the middle and red at the edges.
+const thermalMaterial = new T.ShaderMaterial({
+  transparent: true, depthTest: false, depthWrite: false, uniforms: { beat: { value: 1 } },
+  vertexShader: 'varying vec3 n; void main(){ n = normalize(normalMatrix * normal); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.); }',
+  fragmentShader: `varying vec3 n; uniform float beat;
+    void main(){ float edge = pow(1. - abs(n.z), 1.3); vec3 hot = mix(vec3(1., .96, .6), vec3(.98, .22, .04), edge);
+      gl_FragColor = vec4(hot * beat, .96); }`
+});
+function thermal(group, on, time) {
+  if (on) thermalMaterial.uniforms.beat.value = 0.9 + Math.sin(time * 9) * 0.1;
+  if (group.userData.hot === on) return;
+  group.userData.hot = on;
+  group.scale.setScalar(group.userData.scale * (on ? 2.2 : 1));
+  group.traverse(o => {
+    if (!o.isMesh) return;
+    if (on) { o.userData.plain = o.material; o.material = thermalMaterial; o.renderOrder = 10; }
+    else if (o.userData.plain) { o.material = o.userData.plain; o.renderOrder = 0; }
+  });
+}
 
 // Build one person from a `look` (see makeLook in world.mjs). Returns a Group with the rig on userData.
 function person(look, hexTop, hexBottom) {
@@ -963,7 +982,7 @@ export class View {
       const materials = new Set(), textures = new Set();
       this.scene.traverse(o => {
         if (o.geometry) o.geometry.dispose();
-        if (o.material && o.material !== actorMaterial) materials.add(o.material);
+        if (o.material && o.material !== actorMaterial && o.material !== thermalMaterial) materials.add(o.material);
       });
       for (const m of materials) { if (m.map) textures.add(m.map); m.dispose(); }
       for (const t of textures) t.dispose();
@@ -1023,6 +1042,19 @@ export class View {
       body.position.set(npc.x, 0, npc.z); body.rotation.y = npc.yaw;
       this.scene.add(body); this.npcs.push({ npc, body, mark, flag, seed, look: 0, gesture: 0, gestureAt: -99, talker: npc.id % 3 !== 0 });
     }
+    this.rings = [0, 1].map(() => {
+      const ring = new T.Mesh(new T.RingGeometry(0.85, 1.0, 48).rotateX(-Math.PI / 2),
+        new T.MeshBasicMaterial({ color: 0xff7a2e, transparent: true, depthTest: false, depthWrite: false, side: T.DoubleSide }));
+      ring.renderOrder = 9; ring.visible = false; this.scene.add(ring);
+      return ring;
+    });
+    const glowTexture = texture(128, (ctx, size) => {
+      const g = ctx.createRadialGradient(64, 64, 4, 64, 64, 62);
+      g.addColorStop(0, '#fff2a8ff'); g.addColorStop(0.35, '#ff9a3acc'); g.addColorStop(1, '#ff4a1000');
+      ctx.fillStyle = g; ctx.fillRect(0, 0, size, size);
+    });
+    this.heatGlow = new T.Sprite(new T.SpriteMaterial({ map: glowTexture, transparent: true, depthTest: false, depthWrite: false, blending: T.AdditiveBlending }));
+    this.heatGlow.scale.set(9, 9, 1); this.heatGlow.renderOrder = 8; this.heatGlow.visible = false; this.scene.add(this.heatGlow);
     this.drops = [];
     const g = new T.SphereGeometry(0.024, 5, 4), m = new T.MeshStandardMaterial({ color: 0xcfdfce, roughness: 0.2, metalness: 0.2 });
     for (let i = 0; i < 42; i++) { const drop = new T.Mesh(g, m); this.scene.add(drop); this.drops.push(drop); }
@@ -1056,7 +1088,7 @@ export class View {
       this.renderer.shadowMap.needsUpdate = true;
       this.lastShadow = { time, x: shadow.x, z: shadow.z };
     }
-    const watchers = new Set(state.watchers || []);
+    const watchers = new Set(state.alerts || []);
     let motion = false;
     for (const ent of this.npcs) {
       const { npc, body, mark, flag } = ent, ud = body.userData;
@@ -1088,7 +1120,16 @@ export class View {
       if (where.moving && d < 30) motion = true;
     }
     const visible = new Map(state.others.map(a => [a.id, a]));
-    if (state.contact) visible.set(state.contact.id, state.contact);
+    const heat = drone && state.contact?.live ? state.contact : null;
+    if (heat) visible.set(heat.id, heat);
+    this.heatGlow.visible = !!heat;
+    if (heat) { this.heatGlow.position.set(heat.x, 1.0, heat.z); this.heatGlow.material.opacity = 0.5 + Math.sin(time * 7) * 0.15; }
+    this.rings.forEach((ring, i) => {
+      ring.visible = !!heat;
+      if (!heat) return;
+      const phase = (time * 0.9 + i * 0.5) % 1;
+      ring.position.set(heat.x, 0.3, heat.z); ring.scale.setScalar(0.8 + phase * 3.6); ring.material.opacity = 1 - phase;
+    });
     for (const [id, m] of this.actors) if (!visible.has(id)) m.visible = false;
     for (const [id, a] of visible) {
       if (!this.actors.has(id)) {
@@ -1109,6 +1150,7 @@ export class View {
       if (speed) ud.phase += dt * speed * (speed > 2 ? 3.2 : 4.1);
       pose(m, { phase: ud.phase, speed, stance: a.stance, time, look: 0, gesture: 0, seed: ud.seed });
       if (a.moving) motion = true;
+      thermal(m, !!heat && heat.id === id, time);
       const tag = m.getObjectByName('tag');
       tag.visible = a.role === 'seeker'; tag.position.y = a.stance === 2 ? 0.8 : a.stance === 1 ? 1.4 : 2.1;
     }
