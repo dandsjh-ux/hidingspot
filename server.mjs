@@ -521,7 +521,8 @@ export function createGameServer({ now = Date.now } = {}) {
       const ping = seeking && room.ping?.until > time ? room.ping : null;
       p.socket.volatile.emit('state', {
         round: room.round, phase: room.phase, remaining, paused: !!room.pausedAt, clock: npcClock(room, t),
-        alerts: p.role === 'hider' ? [...room.alerts.keys()] : undefined,
+        // Everyone who is allowed to look sees the same villager alerts. Seekers start at the search, so the hiding time stays blind.
+        alerts: p.role === 'hider' || (seeking && room.settings.npc) ? [...room.alerts.keys()] : undefined,
         self: toWire(p), seq: p.lastSeq, others, contact, ping, npcEnabled,
         drone: p.drone ? { x: p.drone.x, z: p.drone.z, left: Math.max(0, p.drone.until - time) } : null,
         scope: p.scope, droneGate: seeking && room.settings.drone ?

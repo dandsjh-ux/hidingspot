@@ -380,3 +380,28 @@ test('the drone finds a hider inside a building with heat vision, and the ping l
   jump(11000);
   assert.equal((await until(guest, 'state', s => s.contact === null)).contact, null);
 });
+
+test('seekers see the same villager alerts as the hider, but only once the search has started', { timeout: 25000 }, async t => {
+  const { connect, jump } = await harness(t);
+  const [host, guest] = await Promise.all([connect(), connect()]);
+  const opened = until(host, 'identity');
+  await emit(host, 'create-room', { name: 'Hider' });
+  const { code } = await opened;
+  await emit(guest, 'join-room', { code, name: 'Seeker' });
+  await emit(host, 'host', { action: 'settings', settings: { hide: 14, seek: 200, size: 3, walkers: false } });
+  await emit(host, 'host', { action: 'start' });
+  await until(host, 'state', s => s.phase === 'hide' && s.self.role === 'hider');
+  const villager = makeWorld({ size: 3, walkers: false }).npcs.find(n => n.x === -7.4 && n.z === -5.3);
+  await steer(host, -6, 0);
+  await steer(host, -6, -3.6);
+  input(host);
+  await wait(400);
+  jump(5500);
+  const hider = await until(host, 'state', s => s.alerts?.includes(villager.id), 3000);
+  assert.ok(hider.alerts.length >= 1);
+  assert.equal(guest.latest.phase, 'hide');
+  assert.equal(guest.latest.alerts, undefined, 'the seeker is still blind while the hider hides');
+  jump(6000);
+  const seeker = await until(guest, 'state', s => s.phase === 'seek' && s.alerts?.includes(villager.id), 3000);
+  assert.ok(seeker.alerts.includes(villager.id));
+});

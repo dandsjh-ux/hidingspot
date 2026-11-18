@@ -698,8 +698,8 @@ function drawMap(canvas, large) {
     ctx.globalAlpha = 1 - beat; ctx.beginPath(); ctx.arc(x(c.x), z(c.z), base + beat * base * 2.4, 0, 6.283); ctx.stroke();
     ctx.restore();
   }
-  if (state?.self.role === 'hider') {
-    // A villager saw you five seconds ago. The alert sits on the villager who noticed.
+  if (state?.alerts?.length) {
+    // A villager saw the hider five seconds ago. The ! sits on that villager, for the hider and the seekers alike.
     const at = npcClock(performance.now());
     for (const id of state.alerts || []) {
       const npc = world.npcs[id];
@@ -776,6 +776,10 @@ function hud(time) {
     watchedBefore = watched;
   } else {
     $('ping-readout').textContent = state.ping ? 'Search near ' + state.ping.label : 'Search circle in ' + clock(state.nextPing);
+    if (self.role === 'seeker') {
+      if (watched > watchedBefore && time - lastWatched > 1000) { lastWatched = time; notify('! A villager saw the hider. Look for the ! on your map.', 3600); }
+      watchedBefore = watched;
+    }
   }
   const target = targets();
   const caption = target.tag ? 'Tag hider' : target.npc ? 'Ask ' + target.npc.name : '';
