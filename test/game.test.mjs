@@ -473,3 +473,45 @@ test('players stop at the inner face of the boundary wall in every direction, an
     }
   }
 });
+
+test('the host can set the seeker speed, within limits, and seekers move at that speed', { timeout: 40000 }, async t => {
+  async function seekerSpeed(percent) {
+    const { connect, jump } = await harness(t);
+    const [host, guest] = await Promise.all([connect(), connect()]);
+    const opened = until(host, 'identity');
+    await emit(host, 'create-room', { name: 'Host' });
+    const { code } = await opened;
+    await emit(guest, 'join-room', { code, name: 'Seeker' });
+    assert.deepEqual(await emit(host, 'host', { action: 'settings', settings: { hide: 10, seek: 200, size: 3, walkers: false, seekerSpeed: percent } }), { ok: true });
+    await emit(host, 'host', { action: 'start' });
+    await until(guest, 'state', s => s.phase === 'hide');
+    jump(11000);
+    await until(guest, 'state', s => s.phase === 'seek');
+    const samples = [];
+    for (let i = 0; i < 16; i++) {
+      input(guest, { side: 1 });
+      await wait(40);
+      if (i >= 4) samples.push({ x: guest.latest.self.x, clock: guest.latest.clock });
+    }
+    input(guest);
+    const [a, b] = [samples[0], samples.at(-1)];
+    return (b.x - a.x) / (b.clock - a.clock);
+  }
+  const slow = await seekerSpeed(100), fast = await seekerSpeed(300);
+  assert.ok(slow > 4.6 && slow < 6, 'at 100% a seeker walks like the hider, got ' + slow.toFixed(1));
+  assert.ok(fast > 14.5 && fast < 17.2, 'at 300% a seeker walks three times as fast, got ' + fast.toFixed(1));
+
+  // Out-of-range values are clamped to 50-300 and the default is 200.
+  const { connect } = await harness(t);
+  const host = await connect();
+  const opened = until(host, 'identity');
+  await emit(host, 'create-room', { name: 'Host' });
+  await opened;
+  assert.equal((await until(host, 'room', () => true, 500).catch(() => null))?.settings.seekerSpeed ?? 200, 200);
+  const high = until(host, 'room', v => v.settings.seekerSpeed === 300);
+  await emit(host, 'host', { action: 'settings', settings: { seekerSpeed: 9999 } });
+  await high;
+  const low = until(host, 'room', v => v.settings.seekerSpeed === 50);
+  await emit(host, 'host', { action: 'settings', settings: { seekerSpeed: 1 } });
+  await low;
+});

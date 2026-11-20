@@ -30,7 +30,7 @@ Open `http://localhost:3000`. Use two browser tabs or devices to create a room a
 - **Names.** Every district has a signpost at two corners of its block. Named buildings have a large sign over the door and a hanging sign you can read along the street. The town map (**M**) labels each building. Gold buildings on the map have an open door.
 - **Search circles.** A circle marks an approximate area on the map. The readout names the district and counts down to the next update.
 - **Tools.** Binoculars zoom the first-person view. The drone uses the movement controls while the player stays on the ground. Its heat vision finds the hider within 25 metres, outdoors or inside a building, and shows a glowing outline through the roof. The hider's position stays pinged on the map for 10 seconds. The drone has a timed flight and needs to recharge.
-- **Speed.** Seekers move twice as fast as the hider, walking, running, crouching and crawling alike.
+- **Speed.** By default seekers move twice as fast as the hider, walking, running, crouching and crawling alike. The host can change this from 50% to 300% of the hider's speed.
 - **Finish.** Run into the hider to catch them. Touching them is enough, with no button to press, but a wall between you stops a catch. The results show the winner, the number of villagers who gave each seeker a clue and a short English question.
 
 | Action | Keyboard and mouse | Tablet |
@@ -54,7 +54,7 @@ Open `http://localhost:3000`. Use two browser tabs or devices to create a room a
 | Town | 25 blocks. A 9-block version is also available |
 | Timers | 45 seconds to hide, 6 minutes to seek |
 | Hider assignment | Rotate each round. Random and host picks are also available |
-| Movement | Running allowed. Hider can move during the search |
+| Movement | Running allowed. Hider can move during the search. Seekers move at 200% of the hider's speed (50–300%) |
 | Villagers | On. They walk around. Sight radius 8 metres for a walking hider. Descriptive clues |
 | Search circles | On. Every 60 seconds. Radius 24 metres |
 | Binoculars | Unlock 40 seconds into the search |

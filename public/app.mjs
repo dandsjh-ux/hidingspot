@@ -1,4 +1,4 @@
-import { CELL, DIRECTIONS, makeWorld, blockAt, clamp, distance, direction, clearSight, eye, atHeight, occupied, stepBody, npcPose, insideOf, SEEKER_SPEED } from './world.mjs';
+import { CELL, DIRECTIONS, makeWorld, blockAt, clamp, distance, direction, clearSight, eye, atHeight, occupied, stepBody, npcPose, insideOf } from './world.mjs';
 
 const $ = id => document.getElementById(id);
 const button = (text, className, action) => {
@@ -124,6 +124,7 @@ const groups = [
     ['hiderMode', 'Choose the hider', [['rotate', 'Rotate each round'], ['random', 'Random'], ['pick', 'Host chooses']]],
     ['chosen', 'Selected hider', 'players'],
     ['moveHider', 'Hider can move during the search', 'check'], ['sprint', 'Allow running', 'check'],
+    ['seekerSpeed', 'Seeker speed (% of hider speed)', 50, 300],
     ['locked', 'Lock room to new players', 'check'], ['seed', 'Town variation seed', 1, 2147483647]
   ]],
   ['Villagers and vocabulary', [
@@ -837,7 +838,7 @@ function frame(now) {
   const command = input();
   const seekerBlind = state.self.role === 'seeker' && state.phase === 'hide';
   const canWalk = active() && !state.drone && !(predicted.role === 'hider' && state.phase === 'seek' && !room.settings.moveHider);
-  if (active() && !state.drone) stepBody(world, predicted, canWalk ? command : { ...command, side: 0, forward: 0 }, dt, room.settings.sprint, predicted.role === 'seeker' ? SEEKER_SPEED : 1);
+  if (active() && !state.drone) stepBody(world, predicted, canWalk ? command : { ...command, side: 0, forward: 0 }, dt, room.settings.sprint, predicted.role === 'seeker' ? (room.settings.seekerSpeed ?? 200) / 100 : 1);
   if (now - lastSent >= 34) { send(command); lastSent = now; }
   if (!seekerBlind && predicted.role !== 'waiting') {
     scene.draw(predicted, { yaw, pitch, walking: canWalk && Math.hypot(command.side, command.forward) > 0.1 }, state, now / 1000, dt, names, npcClock(now));

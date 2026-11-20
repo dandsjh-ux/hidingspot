@@ -6,7 +6,7 @@ import { resolve } from 'node:path';
 import { Server } from 'socket.io';
 import {
   makeWorld, stepBody, clamp, clearSight, eye, atHeight, direction, blockAt, distance, LANDMARKS,
-  npcPose, npcNotices, insideOf, SEEKER_SPEED, CATCH_RADIUS
+  npcPose, npcNotices, insideOf, CATCH_RADIUS
 } from './public/world.mjs';
 
 const root = fileURLToPath(new URL('.', import.meta.url));
@@ -17,13 +17,13 @@ const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const pauseKeys = ['endsAt', 'seekAt', 'pingAt', 'startAt'];
 
 const settingRange = {
-  seekers: [1, 5], hide: [10, 150], seek: [60, 900],
+  seekers: [1, 5], hide: [10, 150], seek: [60, 900], seekerSpeed: [50, 300],
   witnessRadius: [3, 14], pingEvery: [15, 180], pingRadius: [12, 55],
   droneAt: [10, 600], droneSeconds: [8, 35], droneCooldown: [15, 150], scopeAt: [5, 600],
   seed: [1, 2147483647]
 };
 export const defaults = {
-  seekers: 5, size: 5, seed: 2917, hide: 45, seek: 360, hiderMode: 'rotate', chosen: '',
+  seekers: 5, size: 5, seed: 2917, hide: 45, seek: 360, seekerSpeed: 200, hiderMode: 'rotate', chosen: '',
   locked: false, npc: true, walkers: true, witnessRadius: 8, clues: 'describe', pings: true, pingEvery: 60, pingRadius: 24,
   drone: true, droneAt: 105, droneSeconds: 18, droneCooldown: 50,
   scope: true, scopeAt: 40, sprint: true, moveHider: true
@@ -480,7 +480,7 @@ export function createGameServer({ now = Date.now } = {}) {
         p.drone.z = clamp(p.z + (next.z - p.z) / tether, -room.world.bound, room.world.bound);
       } else {
         const frozen = p === hider && room.phase === 'seek' && !room.settings.moveHider;
-        stepBody(room.world, p, frozen ? { ...input, side: 0, forward: 0 } : input, 1 / CLOCK, room.settings.sprint, p.role === 'seeker' ? SEEKER_SPEED : 1);
+        stepBody(room.world, p, frozen ? { ...input, side: 0, forward: 0 } : input, 1 / CLOCK, room.settings.sprint, p.role === 'seeker' ? room.settings.seekerSpeed / 100 : 1);
       }
       p.moving = distance(p, before) > 0.015;
       // Touch is enough: a seeker who reaches the hider with a clear path between them catches them.
