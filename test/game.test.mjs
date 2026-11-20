@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import { io as client } from 'socket.io-client';
 import { createGameServer, witnessSpot } from '../server.mjs';
 import {
-  makeWorld, occupied, clearSight, direction, distance, stepBody, blockAt, npcPose, npcNotices, insideOf, SEEKER_SPEED
+  BOUNDARY_WALL, makeWorld, occupied, clearSight, direction, distance, stepBody, blockAt, npcPose, npcNotices, insideOf, SEEKER_SPEED
 } from '../public/world.mjs';
 
 test('town sizes, walkable spawn, walls, and clearance for crouching and going prone', () => {
@@ -308,8 +308,10 @@ test('the hider hears about a sighting only after five seconds, and the alert th
   await wait(200);
   assert.deepEqual(host.latest.alerts, [], 'still nothing after three seconds');
   jump(3000);
-  const alert = await until(host, 'state', s => s.alerts?.includes(villager.id), 3000);
+  const alert = await until(host, 'state', s => s.alerts?.some(a => a.id === villager.id), 3000);
   assert.ok(alert.alerts.length >= 1);
+  const heading = alert.alerts.find(a => a.id === villager.id).dir;
+  assert.ok(typeof heading === 'number' && Math.abs(heading) < 0.6, 'the alert points the way the hider was running (north), got ' + heading);
   assert.equal(guest.latest.alerts, undefined);
   // Move away and go prone. The alert fades after a few seconds.
   await steer(host, -6, 4);
@@ -397,13 +399,14 @@ test('seekers see the same villager alerts as the hider, but only once the searc
   input(host);
   await wait(400);
   jump(5500);
-  const hider = await until(host, 'state', s => s.alerts?.includes(villager.id), 3000);
+  const hider = await until(host, 'state', s => s.alerts?.some(a => a.id === villager.id), 3000);
   assert.ok(hider.alerts.length >= 1);
   assert.equal(guest.latest.phase, 'hide');
   assert.equal(guest.latest.alerts, undefined, 'the seeker is still blind while the hider hides');
   jump(6000);
-  const seeker = await until(guest, 'state', s => s.phase === 'seek' && s.alerts?.includes(villager.id), 3000);
-  assert.ok(seeker.alerts.includes(villager.id));
+  const seeker = await until(guest, 'state', s => s.phase === 'seek' && s.alerts?.some(a => a.id === villager.id), 3000);
+  assert.ok(seeker.alerts.some(a => a.id === villager.id));
+  assert.ok(Math.abs(seeker.alerts.find(a => a.id === villager.id).dir) < 0.6, 'seekers get the hider’s heading too');
 });
 
 test('seekers move twice as fast, never skip through walls, and catch the hider by touching them', { timeout: 25000 }, async t => {
@@ -453,4 +456,20 @@ test('seekers move twice as fast, never skip through walls, and catch the hider 
   const outcome = await end;
   assert.equal(outcome.result.winner, 'seeker');
   assert.match(outcome.result.message, /caught/);
+});
+
+test('players stop at the inner face of the boundary wall in every direction, and interior floors sit level with the street', () => {
+  for (const size of [5, 3]) {
+    const town = makeWorld({ size });
+    const edge = town.bound - BOUNDARY_WALL;
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      // Run into the wall from a point in the street at full tilt, as a boosted seeker.
+      const body = { x: dx ? 0 : 19, z: dz ? 0 : 19, stance: 0 };
+      if (dx) body.z = 19; else body.x = 19;
+      for (let i = 0; i < 400; i++) stepBody(town, body, { side: dx, forward: -dz, yaw: 0, stance: 0, run: true }, 0.056, true, SEEKER_SPEED);
+      const reach = Math.max(Math.abs(body.x), Math.abs(body.z)) + 0.34;
+      assert.ok(reach <= edge + 1e-6, `size ${size} direction ${dx},${dz}: body reaches ${reach.toFixed(2)} but the wall starts at ${edge.toFixed(2)}`);
+      assert.ok(reach > edge - 0.5, 'and they can walk right up to it');
+    }
+  }
 });

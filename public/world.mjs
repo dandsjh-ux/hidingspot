@@ -2,6 +2,7 @@ export const CELL = 38;
 export const EYES = [1.65, 1.07, 0.51];
 export const BODY = [1.82, 1.18, 0.64];
 export const PLAYER_RADIUS = 0.34;
+export const BOUNDARY_WALL = 0.47;
 export const DIRECTIONS = ['north', 'north-east', 'east', 'south-east', 'south', 'south-west', 'west', 'north-west'];
 export const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 export const distance = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
@@ -465,7 +466,9 @@ const candidates = (world, x0, z0, x1, z1) => {
 };
 export function occupied(world, x, z, stance = 0) {
   const r = PLAYER_RADIUS;
-  if (Math.abs(x) > world.bound - r || Math.abs(z) > world.bound - r) return true;
+  // The boundary wall is 0.94 m thick and centred on `bound`, so a player stops at its inner face.
+  const limit = world.bound - BOUNDARY_WALL - r;
+  if (Math.abs(x) > limit || Math.abs(z) > limit) return true;
   for (const o of candidates(world, x - r, z - r, x + r, z + r)) {
     if (BODY[stance] > o.bottom && Math.abs(x - o.x) < o.w / 2 + r && Math.abs(z - o.z) < o.d / 2 + r) return true;
   }

@@ -696,10 +696,20 @@ function drawMap(canvas, large) {
   if (state?.alerts?.length) {
     // A villager saw the hider five seconds ago. The ! sits on that villager, for the hider and the seekers alike.
     const at = npcClock(performance.now());
-    for (const id of state.alerts || []) {
-      const npc = world.npcs[id];
+    for (const alert of state.alerts || []) {
+      const npc = world.npcs[alert.id];
       if (!npc) continue;
       const where = npcPose(npc, at, world.walkers), r = large ? 11 : 6.5, pulse = 1 + Math.sin(performance.now() / 160) * 0.12;
+      if (alert.dir != null) {
+        // The arrow shows the way the hider was heading when this villager saw them (north is up)
+        const len = large ? 34 : 17;
+        ctx.save(); ctx.translate(x(where.x), z(where.z)); ctx.rotate(alert.dir);
+        ctx.fillStyle = '#f2a33a'; ctx.strokeStyle = '#2b1d0c'; ctx.lineWidth = large ? 2 : 1.2; ctx.lineJoin = 'round';
+        ctx.beginPath();
+        ctx.moveTo(-r * 0.32, -r * 0.8); ctx.lineTo(-r * 0.32, -len * 0.62); ctx.lineTo(-r * 0.75, -len * 0.62);
+        ctx.lineTo(0, -len); ctx.lineTo(r * 0.75, -len * 0.62); ctx.lineTo(r * 0.32, -len * 0.62); ctx.lineTo(r * 0.32, -r * 0.8);
+        ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.restore();
+      }
       ctx.save(); ctx.translate(x(where.x), z(where.z)); ctx.scale(pulse, pulse);
       ctx.beginPath(); ctx.arc(0, 0, r, 0, 6.283);
       ctx.fillStyle = '#f2a33a'; ctx.fill(); ctx.lineWidth = large ? 2 : 1.4; ctx.strokeStyle = '#2b1d0c'; ctx.stroke();
@@ -797,24 +807,26 @@ function updateArrows() {
   }
   const px = state.drone?.x ?? predicted.x, pz = state.drone?.z ?? predicted.z, facing = state.drone ? 0 : yaw;
   const clock = npcClock(performance.now()), radius = Math.min(box.clientWidth, box.clientHeight) * 0.3;
-  const list = state.alerts.map(id => {
-    const npc = world.npcs[id], where = npc && npcPose(npc, clock, world.walkers);
-    return npc && { npc, where, d: Math.hypot(where.x - px, where.z - pz) };
-  }).filter(item => item && item.d > 3).sort((a, b) => a.d - b.d).slice(0, 3);
+  const list = state.alerts.map(alert => {
+    const npc = world.npcs[alert.id], where = npc && npcPose(npc, clock, world.walkers);
+    return npc && { npc, where, dir: alert.dir, d: Math.hypot(where.x - px, where.z - pz) };
+  }).filter(Boolean).sort((a, b) => a.d - b.d).slice(0, 3);
   const keep = new Set(list.map(item => item.npc.id));
   for (const [id, el] of arrows) if (!keep.has(id)) { el.remove(); arrows.delete(id); }
-  for (const { npc, where, d } of list) {
+  for (const { npc, where, d, dir } of list) {
     let el = arrows.get(npc.id);
     if (!el) {
       el = document.createElement('div'); el.className = 'alert-arrow';
       el.innerHTML = '<svg viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="21" fill="#f2a33a" stroke="#2b1d0c" stroke-width="3"/><path d="M24 6 L36 26 L24 21 L12 26 Z" fill="#2b1d0c"/><text x="24" y="40" text-anchor="middle" font-size="15" font-weight="900" fill="#2b1d0c">!</text></svg><span></span>';
       box.append(el); arrows.set(npc.id, el);
     }
-    // 0 is straight ahead, a quarter turn clockwise is to your right
-    const rel = Math.atan2(where.x - px, -(where.z - pz)) + facing;
+    // 0 is straight ahead, a quarter turn clockwise is to your right. The arrow points the way the hider was running,
+    // or at the villager if the hider had not started moving.
+    const rel = (dir ?? Math.atan2(where.x - px, -(where.z - pz))) + facing;
     el.style.transform = 'translate(' + Math.sin(rel) * radius + 'px,' + -Math.cos(rel) * radius + 'px)';
     el.firstElementChild.style.transform = 'rotate(' + rel + 'rad)';
-    el.lastElementChild.textContent = npc.name + ' · ' + Math.round(d) + ' m';
+    el.lastElementChild.textContent = dir == null ? npc.name + ' saw them · ' + Math.round(d) + ' m'
+      : npc.name + ': they went ' + direction(Math.sin(dir), -Math.cos(dir));
   }
 }
 function frame(now) {

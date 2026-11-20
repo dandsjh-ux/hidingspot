@@ -185,6 +185,7 @@ export function createGameServer({ now = Date.now } = {}) {
     room.aware = new Map();
     room.pending = new Map();
     room.alerts = new Map();
+    room.sightDir = new Map();
     room.ping = null;
     room.pausedAt = 0;
     room.startAt = time;
@@ -333,7 +334,7 @@ export function createGameServer({ now = Date.now } = {}) {
             }
             for (const witness of room.witnesses.values()) witness.time += shift;
             for (const [id, since] of room.pending) room.pending.set(id, since + shift);
-            for (const [id, until] of room.alerts) room.alerts.set(id, until + shift);
+            for (const alert of room.alerts.values()) alert.until += shift;
             for (const p of room.players.values()) if (p.contact) p.contact.until += shift;
             room.pausedAt = 0;
           } else {
@@ -422,6 +423,9 @@ export function createGameServer({ now = Date.now } = {}) {
       run: hider.moving && input.run && hider.stance === 0 && room.settings.sprint
     };
     let spot;
+    // The way the hider is heading, as an angle clockwise from north. Null when they have not moved yet.
+    const h = hider.heading;
+    const bearing = h && Math.hypot(h.x, h.z) > 0.2 ? Math.round(Math.atan2(h.x, -h.z) * 100) / 100 : null;
     for (const npc of room.world.npcs) {
       let level = room.aware.get(npc.id) || 0;
       let strength = 0;
@@ -436,15 +440,16 @@ export function createGameServer({ now = Date.now } = {}) {
         spot ||= { ...witnessSpot(room.world, hider), direction: hider.headingName };
         room.witnesses.set(npc.id, { ...spot, time: t });
         // The hider is told five seconds later, so a sighting never gives itself away at once.
+        room.sightDir.set(npc.id, bearing);
         if (!room.alerts.has(npc.id) && !room.pending.has(npc.id)) room.pending.set(npc.id, t);
       }
     }
     for (const [id, since] of room.pending) {
       if (t - since < ALERT_DELAY) continue;
       room.pending.delete(id);
-      room.alerts.set(id, t + ALERT_SHOW);
+      room.alerts.set(id, { until: t + ALERT_SHOW, dir: room.sightDir.get(id) ?? null });
     }
-    for (const [id, until] of room.alerts) if (t >= until) room.alerts.delete(id);
+    for (const [id, alert] of room.alerts) if (t >= alert.until) room.alerts.delete(id);
   }
 
   function advance(room, t) {
@@ -528,7 +533,8 @@ export function createGameServer({ now = Date.now } = {}) {
       p.socket.volatile.emit('state', {
         round: room.round, phase: room.phase, remaining, paused: !!room.pausedAt, clock: npcClock(room, t),
         // Everyone who is allowed to look sees the same villager alerts. Seekers start at the search, so the hiding time stays blind.
-        alerts: p.role === 'hider' || (seeking && room.settings.npc) ? [...room.alerts.keys()] : undefined,
+        // Each alert says which villager saw the hider and the way the hider was heading (radians clockwise from north, or null if standing still)
+        alerts: p.role === 'hider' || (seeking && room.settings.npc) ? [...room.alerts].map(([id, alert]) => ({ id, dir: alert.dir })) : undefined,
         self: toWire(p), seq: p.lastSeq, others, contact, ping, npcEnabled,
         drone: p.drone ? { x: p.drone.x, z: p.drone.z, left: Math.max(0, p.drone.until - time) } : null,
         scope: p.scope, droneGate: seeking && room.settings.drone ?

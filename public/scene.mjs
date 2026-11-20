@@ -181,7 +181,8 @@ function build(scene, world) {
       box(x + s * (iw / 2 - 0.05), 0.11, z, 0.06, 0.22, id, skirting);
       box(x, 0.11, z - f * (id / 2 - 0.05), iw, 0.22, 0.06, skirting);
     }
-    box(x, 0.026, z, iw, 0.052, id, mat(floorTone, floorMap), 0, 0, 0, false);
+    // Floors sit just above the street (top 1.6 cm) so shoes and the doorstep never look sunk or raised.
+    box(x, 0.004, z, iw, 0.024, id, mat(floorTone, floorMap), 0, 0, 0, false);
     box(x, ceil - 0.05, z, iw, 0.1, id, mat(0xe8dcc3, 'stucco'));
     const beams = Math.max(2, Math.round(id / 1.8));
     for (let i = 0; i < beams; i++) box(x, ceil - 0.17, z - id / 2 + (i + 0.5) * id / beams, iw, 0.14, 0.2, wood);
@@ -198,7 +199,7 @@ function build(scene, world) {
       box(x + s * jamb, e.doorH / 2, zF + f * (T_ / 2 + 0.02), 0.16, e.doorH + 0.1, 0.1, trim);
     }
     box(x, e.doorH + 0.06, zF + f * (T_ / 2 + 0.02), e.doorW + 0.46, 0.16, 0.12, trim);
-    box(x, 0.03, zF + f * (T_ / 2 + 0.1), e.doorW + 0.2, 0.07, 0.9, sand, 0, 0, 0, false);
+    box(x, 0.004, zF + f * (T_ / 2 + 0.1), e.doorW + 0.2, 0.05, 0.9, sand, 0, 0, 0, false);
   }
   const i_book = s => (s > 0 ? 0x4d6a8a : 0x8a4d4d);
   function roof(o) {
@@ -318,7 +319,7 @@ function build(scene, world) {
         }
       }
       if (front && o.enter) {
-        B(0, 0.04, 0.12, o.enter.doorW + 0.5, 0.1, 0.6, sand);
+        B(0, 0.0, 0.12, o.enter.doorW + 0.5, 0.06, 0.6, sand);
       } else if (front) {
         A(0, 0.045, 0.018, 1.29, 1.65, 0.018, dark, true);
         A(0, 0.045, 0.15, 1.29, 1.65, 0.17, trim, false);
@@ -348,7 +349,7 @@ function build(scene, world) {
     }
   }
 
-  box(0, -0.23, 0, world.bound * 2 + 10, 0.42, world.bound * 2 + 10, paving, 0, 0, 0, false);
+  box(0, -0.23, 0, world.bound * 2 + 1.2, 0.42, world.bound * 2 + 1.2, paving, 0, 0, 0, false);
   for (const b of world.blocks) {
     const green = ['garden', 'rose', 'orchard', 'vineyard', 'terrace'].includes(b.type);
     if (b.type !== 'canal') box(b.x, -0.03, b.z, 30, 0.082, 30, green ? grass : flags, 0, 0, 0, false);
@@ -362,7 +363,9 @@ function build(scene, world) {
     }
     // District signposts: a tall post at two opposite corners, with plates facing along both streets
     for (const [sx, sz] of [[-17.4, 13.4], [17.4, -13.4]]) {
-      const x = b.x + sx, z = b.z + sz;
+      // Plates are 3.8 m wide, so edge blocks keep their posts clear of the boundary wall
+      const reach = world.bound - 2.6;
+      const x = Math.max(-reach, Math.min(reach, b.x + sx)), z = Math.max(-reach, Math.min(reach, b.z + sz));
       cyl(x, 1.55, z, 0.045, 0.075, 3.1, iron, 6);
       cyl(x, 3.14, z, 0.07, 0.07, 0.08, iron, 6);
       sign(b.name.toUpperCase(), '', x, 2.6, z, 0, 3.8, 0.9, 'street');
@@ -544,9 +547,9 @@ function build(scene, world) {
         break;
       case 'rug': {
         const m = mat(RUGS[o.tint], 'stucco');
-        box(x, 0.058, z, w, 0.012, d, m, 0, 0, 0, false);
-        box(x, 0.066, z, w - 0.5, 0.006, d - 0.5, mat(0xe9d6a8), 0, 0, 0, false);
-        box(x, 0.071, z, w - 0.8, 0.006, d - 0.8, m, 0, 0, 0, false);
+        box(x, 0.0175, z, w, 0.003, d, m, 0, 0, 0, false);
+        box(x, 0.0195, z, w - 0.5, 0.003, d - 0.5, mat(0xe9d6a8), 0, 0, 0, false);
+        box(x, 0.0215, z, w - 0.8, 0.003, d - 0.8, m, 0, 0, 0, false);
         break;
       }
       case 'oven': {
@@ -655,10 +658,11 @@ function build(scene, world) {
     }
   }
   for (const s of [-1, 1]) {
-    box(s * world.bound, 0.53, 0, 0.94, 1.06, world.bound * 2, sand);
-    box(0, 0.53, s * world.bound, world.bound * 2, 1.06, 0.94, sand);
-    box(s * world.bound, 1.09, 0, 1.1, 0.17, world.bound * 2, trim);
-    box(0, 1.09, s * world.bound, world.bound * 2, 0.17, 1.1, trim);
+    // The walls overlap at the corners and reach below the paving, so there is no notch or gap to look through
+    box(s * world.bound, 0.28, 0, 0.94, 1.56, world.bound * 2 + 0.94, sand);
+    box(0, 0.28, s * world.bound, world.bound * 2 + 0.94, 1.56, 0.94, sand);
+    box(s * world.bound, 1.09, 0, 1.1, 0.17, world.bound * 2 + 1.1, trim);
+    box(0, 1.09, s * world.bound, world.bound * 2 + 1.1, 0.17, 1.1, trim);
   }
   box(0, -2.6, 0, 820, 4.6, 820, grass, 0, 0, 0, false);
   for (let i = 0; i < 37; i++) {
@@ -1031,16 +1035,23 @@ export class View {
     this.walkers = world.walkers;
     this.alertMaterial?.map?.dispose(); this.alertMaterial?.dispose();
     this.alertMaterial = alertMaterial();
+    // Shape in the XY plane pointing +Y, then laid flat so it points north (-Z)
+    const shape = new T.Shape();
+    shape.moveTo(-0.1, 0); shape.lineTo(-0.1, 0.8); shape.lineTo(-0.34, 0.8); shape.lineTo(0, 1.35); shape.lineTo(0.34, 0.8); shape.lineTo(0.1, 0.8); shape.lineTo(0.1, 0);
+    shape.closePath();
+    this.arrowGeometry = new T.ShapeGeometry(shape).rotateX(-Math.PI / 2);
+    this.arrowMaterial = new T.MeshBasicMaterial({ color: 0xf2a33a, transparent: true, opacity: 0.92, side: T.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
     if (npcEnabled) for (const npc of world.npcs) {
       const body = person(npc.look);
       const mark = label(npc.role ? npc.name + ' · ' + npc.role : npc.name);
       const flag = new T.Sprite(this.alertMaterial); flag.scale.set(0.34, 0.34, 1); flag.renderOrder = 5; flag.visible = false;
+      const arrow = new T.Mesh(this.arrowGeometry, this.arrowMaterial); arrow.visible = false; arrow.renderOrder = 3; this.scene.add(arrow);
       mark.position.y = 2.14; flag.position.y = 2.58;
       body.add(mark, flag);
       const seed = npc.id * 1.37;
       body.userData.seed = seed; body.userData.nextGesture = 3 + (npc.id * 7) % 13;
       body.position.set(npc.x, 0, npc.z); body.rotation.y = npc.yaw;
-      this.scene.add(body); this.npcs.push({ npc, body, mark, flag, seed, look: 0, gesture: 0, gestureAt: -99, talker: npc.id % 3 !== 0 });
+      this.scene.add(body); this.npcs.push({ npc, body, mark, flag, arrow, seed, look: 0, gesture: 0, gestureAt: -99, talker: npc.id % 3 !== 0 });
     }
     this.rings = [0, 1].map(() => {
       const ring = new T.Mesh(new T.RingGeometry(0.85, 1.0, 48).rotateX(-Math.PI / 2),
@@ -1088,7 +1099,7 @@ export class View {
       this.renderer.shadowMap.needsUpdate = true;
       this.lastShadow = { time, x: shadow.x, z: shadow.z };
     }
-    const watchers = new Set(state.alerts || []);
+    const alerts = new Map((state.alerts || []).map(alert => [alert.id, alert]));
     let motion = false;
     for (const ent of this.npcs) {
       const { npc, body, mark, flag } = ent, ud = body.userData;
@@ -1115,7 +1126,15 @@ export class View {
       }
       pose(body, { phase: ud.phase, speed: where.moving ? where.speed : 0, stance: 0, time, look: ent.look, gesture, seed: ent.seed });
       mark.visible = !drone && p.role === 'seeker' && state.phase === 'seek' && d < 10;
-      flag.visible = !drone && watchers.has(npc.id) && d < 40;
+      const alert = alerts.get(npc.id);
+      flag.visible = !drone && !!alert && d < 40;
+      ent.arrow.visible = !!alert && alert.dir != null && d < 70;
+      if (ent.arrow.visible) {
+        // A flat arrow on the ground in front of the villager, pointing the way the hider ran
+        const sx = Math.sin(alert.dir), sz = -Math.cos(alert.dir), bob = 1 + Math.sin(time * 4 + ent.seed) * 0.05;
+        ent.arrow.position.set(where.x + sx * 0.7, 0.045, where.z + sz * 0.7);
+        ent.arrow.rotation.y = -alert.dir; ent.arrow.scale.setScalar(bob);
+      }
       if (flag.visible) flag.position.y = 2.58 + Math.sin(time * 5 + ent.seed) * 0.04;
       if (where.moving && d < 30) motion = true;
     }
